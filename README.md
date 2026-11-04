@@ -45,6 +45,17 @@ npx wrangler secret put ALPACA_SECRET
 ```
 Wrangler prints the Worker address, for example `https://standard-vela-proxy.<you>.workers.dev`.
 
+Two more secrets switch on the extra desks. Each is optional; a desk whose secret is missing says so.
+
+- **Filings and Earnings** read SEC EDGAR, which requires every client to name itself with a contact address. Enter something like `Your Name you@example.com`:
+```bash
+npx wrangler secret put SEC_USER_AGENT
+```
+- **Analyst** calls Claude. Create an API key at platform.claude.com. Each question is billed to that key: it uses Claude Opus 5.5 at medium effort, with Claude's server-side fallback turned on so a declined request is retried on another model.
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
 ### 3. The app on your phone
 The quickest way is Expo Go, a free app from the App Store and Google Play:
 ```bash
@@ -64,6 +75,21 @@ npx eas-cli@latest build -p android --profile preview
 npx eas-cli@latest build -p ios --profile preview
 ```
 Before the first build, change `com.example.standardvela` in `app/app.json` to your own identifier, for example `com.yourname.standardvela`.
+
+## Desks
+
+The Desks tab holds six more screens. Their data sources differ from the web desk, which reads Robinhood:
+
+| Desk | Phone data |
+|---|---|
+| Book | A Robinhood account activity CSV you open on the phone. The file never leaves it; only tickers go to your proxy. |
+| Market | Alpaca prices for index and sector funds, your watchlist for breadth, the VIX from the St. Louis Fed |
+| Pairs | Alpaca daily prices for your watchlist or typed tickers |
+| Analyst | Claude through your proxy, which fixes the model, instructions and tools; the phone supplies prices, Alpaca news, SEC filings and earnings windows |
+| Filings | SEC EDGAR |
+| Earnings | Past reports dated from SEC 8-K item 2.02 filings. No EPS estimates or confirmed future dates. |
+
+Congress trades are on the web desk only. Set your watchlist in Settings.
 
 ## Checks
 ```bash

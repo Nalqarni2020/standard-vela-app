@@ -7,8 +7,9 @@ import { Settings, DEFAULTS, loadSettings, saveSettings } from "./src/settings";
 import { StandardScreen } from "./src/screens/StandardScreen";
 import { SignalsScreen } from "./src/screens/SignalsScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
+import { DesksScreen } from "./src/screens/DesksScreen";
 
-type Tab = "standard" | "signals" | "settings";
+type Tab = "standard" | "signals" | "desks" | "settings";
 
 export default function App() {
   const theme = useTheme();
@@ -35,11 +36,12 @@ export default function App() {
           {!settings ? null
             : tab === "standard" ? <StandardScreen theme={theme} settings={settings} onSymbol={onSymbol} />
             : tab === "signals" ? <SignalsScreen theme={theme} settings={settings} symbol={settings.lastSymbol} />
+            : tab === "desks" ? <DesksScreen theme={theme} settings={settings} />
             : <SettingsScreen theme={theme} settings={settings} onSaved={s => { setSettings(s); if (s.token) setTab("standard"); }} />}
         </View>
         <SafeAreaView edges={["bottom"]} style={{ backgroundColor: theme.sheet, borderTopWidth: 1, borderTopColor: theme.rule }}>
           <View style={{ flexDirection: "row" }}>
-            {([["standard", "Standard"], ["signals", "Candle break"], ["settings", "Settings"]] as [Tab, string][]).map(([k, l]) => (
+            {([["standard", "Standard"], ["signals", "Candle"], ["desks", "Desks"], ["settings", "Settings"]] as [Tab, string][]).map(([k, l]) => (
               <Pressable key={k} onPress={() => setTab(k)} accessibilityRole="tab" accessibilityState={{ selected: tab === k }} style={{ flex: 1, paddingVertical: 12, alignItems: "center" }}>
                 <Text style={{ color: tab === k ? theme.teal : theme.ink3, fontWeight: tab === k ? "700" : "500" }}>{l}</Text>
               </Pressable>))}

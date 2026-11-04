@@ -11,9 +11,10 @@ export type Settings = {
   bucket: "core" | "spec";
   capPct: number;       // position cap, percent of account
   lastSymbol: string;
+  watchlist: string;    // comma-separated tickers used by Market, Pairs, Filings and Earnings
 };
 
-export const DEFAULTS: Settings = { proxyUrl: "", token: "", account: 25000, bucket: "core", capPct: 25, lastSymbol: "CIFR" };
+export const DEFAULTS: Settings = { proxyUrl: "", token: "", account: 25000, bucket: "core", capPct: 25, lastSymbol: "CIFR", watchlist: "" };
 
 const KEY_TOKEN = "sv.token";
 const KEY_PREFS = "sv.prefs";
@@ -44,4 +45,8 @@ export function checkProxyUrl(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function watchlistSymbols(s: Settings): string[] {
+  return [...new Set(s.watchlist.split(/[\s,]+/).map(x => x.trim().toUpperCase().replace(/^\$/, "")).filter(x => /^[A-Z][A-Z0-9.]{0,9}$/.test(x)))].slice(0, 40);
 }

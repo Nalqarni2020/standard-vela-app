@@ -42,6 +42,11 @@ export function SettingsScreen({ theme, settings, onSaved }: { theme: Theme; set
           <Btn theme={theme} label="Forget token" onPress={forget} />
         </View>
       </Card>
+      <Card theme={theme} title="Watchlist">
+        {field("Tickers, comma separated (up to 40)", s.watchlist, v => setS({ ...s, watchlist: v.toUpperCase() }), { placeholder: "NVDA, AMZN, IREN, CIFR", autoCapitalize: "characters", multiline: true })}
+        <Text style={{ color: theme.ink3, fontSize: 12, paddingHorizontal: 14 }}>Used by Market breadth, Pairs, the Filings radar and Earnings.</Text>
+        <View style={{ padding: 14 }}><Btn theme={theme} label="Save" primary onPress={save} /></View>
+      </Card>
       <Card theme={theme} title="Size">
         {field("Account ($)", String(s.account), v => setS({ ...s, account: +v.replace(/[^0-9.]/g, "") || 0 }), { keyboardType: "decimal-pad" })}
         <View style={{ paddingHorizontal: 14, paddingVertical: 8 }}>

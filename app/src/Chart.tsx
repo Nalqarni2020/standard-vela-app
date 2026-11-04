@@ -74,3 +74,27 @@ export function Chart({ bars, lines = [], levels = [], band, marks = [], count =
     </View>
   );
 }
+
+/* Line chart: series on one scale, optional dashed guides with labels. */
+export function LineChart({ series, guides = [], height = 200, theme, fmt = (v: number) => v.toFixed(1) }:
+  { series: { vals: (number | null)[]; color: string; dash?: string }[]; guides?: { y: number; color: string; label?: string }[]; height?: number; theme: Theme; fmt?: (v: number) => string }) {
+  const [w, setW] = useState(0);
+  const n = Math.max(0, ...series.map(s => s.vals.length));
+  let lo = Infinity, hi = -Infinity;
+  series.forEach(s => s.vals.forEach(v => { if (v != null && isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
+  guides.forEach(g => { lo = Math.min(lo, g.y); hi = Math.max(hi, g.y); });
+  if (!isFinite(lo) || n < 2) return <View style={{ height: 40 }}><Text style={{ color: theme.ink3, padding: 12 }}>Not enough data to draw.</Text></View>;
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const padR = 44, X = (i: number) => (i / (n - 1)) * (w - padR), Y = (v: number) => 6 + (hi - v) / (hi - lo) * (height - 12);
+  return (
+    <View style={{ height }} onLayout={e => setW(e.nativeEvent.layout.width)}>
+      {w > 0 && (
+        <Svg width={w} height={height}>
+          {[0.15, 0.5, 0.85].map(f => { const v = hi - f * (hi - lo); return <React.Fragment key={f}><Line x1={0} x2={w - padR} y1={Y(v)} y2={Y(v)} stroke={theme.rule} /><SvgText x={w - padR + 4} y={Y(v) + 4} fontSize={10} fill={theme.ink3}>{fmt(v)}</SvgText></React.Fragment>; })}
+          {guides.map((g, k) => <React.Fragment key={"g" + k}><Line x1={0} x2={w - padR} y1={Y(g.y)} y2={Y(g.y)} stroke={g.color} strokeDasharray="4,3" />{g.label ? <SvgText x={4} y={Y(g.y) - 4} fontSize={10} fill={g.color}>{g.label}</SvgText> : null}</React.Fragment>)}
+          {series.map((s, k) => { const pts: string[] = []; s.vals.forEach((v, i) => { if (v != null && isFinite(v)) pts.push(X(i).toFixed(1) + "," + Y(v).toFixed(1)); }); return <Polyline key={k} points={pts.join(" ")} fill="none" stroke={s.color} strokeWidth={1.6} strokeDasharray={s.dash} />; })}
+        </Svg>
+      )}
+    </View>
+  );
+}
