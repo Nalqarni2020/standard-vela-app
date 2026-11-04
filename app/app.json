@@ -8,17 +8,17 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.standardvela"
+      "bundleIdentifier": "com.nalqarni2020.standardvela"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0D6556",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.example.standardvela"
+      "package": "com.nalqarni2020.standardvela"
     },
     "web": {
       "favicon": "./assets/favicon.png"

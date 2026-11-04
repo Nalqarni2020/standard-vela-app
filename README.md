@@ -79,7 +79,7 @@ npx eas-cli@latest build -p android --profile preview
 ```bash
 npx eas-cli@latest build -p ios --profile preview
 ```
-Before the first build, change `com.example.standardvela` in `app/app.json` to your own identifier, for example `com.yourname.standardvela`.
+The Android app ID is `com.nalqarni2020.standardvela`; Little Astronaut is `com.nalqarni2020.littleastronaut`.
 
 ## Desks
 

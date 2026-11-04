@@ -8,17 +8,17 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.littleastronaut"
+      "bundleIdentifier": "com.nalqarni2020.littleastronaut"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0b1033",
+        "backgroundColor": "#1f1a63",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.example.littleastronaut"
+      "package": "com.nalqarni2020.littleastronaut"
     },
     "web": {
       "favicon": "./assets/favicon.png"
