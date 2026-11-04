@@ -23,6 +23,11 @@ tests/    engine tests (run with npm test at the root)
 Create an account at alpaca.markets and generate API keys. The free plan gives consolidated (all exchanges) history that ends 15 minutes ago, plus a live IEX price. The app is built around that 16-minute delay.
 
 ### 2. The Worker (Cloudflare, free plan)
+The quickest way is the setup script, which signs you in, deploys, creates the access token and asks for each key:
+```bash
+cd worker && bash setup.sh
+```
+Or do the same steps by hand:
 ```bash
 cd worker
 npm test
