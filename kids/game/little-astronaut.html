@@ -5,13 +5,8 @@
 <style>
 /* Layout: one screen at a time over a deep-space sky; huge round controls for small hands; a single dark look on purpose. */
 :root {
-  --space: #0b1033;      /* night sky */
-  --space-2: #161d52;    /* panels */
-  --star: #fff4c2;       /* text and stars */
-  --dim: #aab3e8;        /* secondary text */
-  --sun: #ffc93c;        /* main accent, warm */
-  --nebula: #ff7ab8;     /* second accent, pink */
-  --mint: #6ff0c4;       /* success */
+  --space: #0b1033; --space-2: #161d52; --star: #fff4c2; --dim: #aab3e8;
+  --sun: #ffc93c; --nebula: #ff7ab8; --mint: #6ff0c4;
   --font: "Baloo 2", "Baloo Bhaijaan 2", "Trebuchet MS", system-ui, sans-serif;
   --font-ar: "Baloo Bhaijaan 2", "Baloo 2", Tahoma, system-ui, sans-serif;
   color-scheme: dark;
@@ -19,69 +14,77 @@
 html, body { height: 100%; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--space); color: var(--star); font-family: var(--font); overflow: hidden; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
-html[dir="rtl"] body { font-family: var(--font-ar); }
+html[dir="rtl"] body, html[dir="rtl"] button { font-family: var(--font-ar); }
 #sky { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
 .app { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 10px; box-sizing: border-box; }
 .top { display: flex; align-items: center; gap: 12px; min-height: 64px; }
-.top h1 { flex: 1; margin: 0; font-size: clamp(22px, 5.5vw, 34px); font-weight: 800; letter-spacing: .01em; text-align: center; text-wrap: balance; line-height: 1.1; }
-.round { width: 60px; height: 60px; border-radius: 50%; border: 3px solid var(--star); background: var(--space-2); color: var(--star); font: 800 26px/1 var(--font); display: grid; place-items: center; cursor: pointer; flex: none; touch-action: manipulation; }
-html[dir="rtl"] .round { font-family: var(--font-ar); }
-.round:active { transform: scale(.94); }
-.round:focus-visible, .tile:focus-visible, .pbtn:focus-visible, .big:focus-visible { outline: 4px solid var(--sun); outline-offset: 3px; }
-.round[hidden] { display: none !important; }
+.top h1 { flex: 1; margin: 0; font-size: clamp(21px, 5.4vw, 34px); font-weight: 800; text-align: center; text-wrap: balance; line-height: 1.1; }
+.round { width: 58px; height: 58px; border-radius: 50%; border: 3px solid var(--star); background: var(--space-2); color: var(--star); font: 800 25px/1 var(--font); display: grid; place-items: center; cursor: pointer; flex: none; touch-action: manipulation; padding: 0; }
+.round:active, .tile:active, .big:active, .pbtn:active, .lvl:active { transform: scale(.95); }
+button:focus-visible { outline: 4px solid var(--sun); outline-offset: 3px; }
 .round svg { width: 30px; height: 30px; }
 html[dir="rtl"] .back-arrow { transform: scaleX(-1); }
 .stage { flex: 1; min-height: 0; position: relative; }
-.screen { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px; }
-.hint { margin: 0; text-align: center; font-size: clamp(18px, 4.6vw, 26px); font-weight: 700; color: var(--star); text-wrap: balance; }
-.hint small { display: block; font-size: .7em; color: var(--dim); font-weight: 500; }
-
-/* home */
-.tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-height: 0; }
-.tile { border: 0; border-radius: 28px; background: var(--space-2); color: var(--star); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px; font: 800 clamp(17px, 4.4vw, 26px)/1.1 var(--font); box-shadow: inset 0 0 0 3px rgba(255,244,194,.14); touch-action: manipulation; min-width: 0; }
-html[dir="rtl"] .tile { font-family: var(--font-ar); }
-.tile:active { transform: scale(.97); }
-.tile canvas { width: min(26vw, 150px); height: min(26vw, 150px); max-width: 100%; }
-.tile.t1 { background: #2a1f6e; } .tile.t2 { background: #183f62; } .tile.t3 { background: #4a1f5e; } .tile.t4 { background: #3b2a12; }
-.big { border: 0; border-radius: 999px; background: var(--sun); color: #2b1a00; font: 800 clamp(18px, 4.6vw, 24px)/1 var(--font); padding: 16px 26px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; justify-content: center; touch-action: manipulation; }
-html[dir="rtl"] .big { font-family: var(--font-ar); }
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; }
+.helper { display: flex; align-items: center; gap: 10px; min-height: 64px; }
+.helper canvas { width: 58px; height: 58px; flex: none; }
+.bubble { flex: 1; min-width: 0; background: var(--space-2); border-radius: 22px; padding: 8px 14px; font-size: clamp(17px, 4.4vw, 24px); font-weight: 700; line-height: 1.25; text-wrap: balance; position: relative; }
+.hint { margin: 0; text-align: center; font-size: clamp(17px, 4.4vw, 24px); font-weight: 700; text-wrap: balance; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tile { border: 0; border-radius: 26px; background: var(--space-2); color: var(--star); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px 6px; font: 800 clamp(16px, 4.2vw, 24px)/1.1 var(--font); box-shadow: inset 0 0 0 3px rgba(255,244,194,.14); touch-action: manipulation; min-width: 0; text-align: center; }
+.tile small { font-size: .7em; font-weight: 500; color: var(--dim); }
+.tile.hero { grid-column: 1 / -1; flex-direction: row; gap: 14px; background: linear-gradient(120deg, #3a1f7a, #1d3f8a); padding: 14px; }
+.c1 { background: #2a1f6e; } .c2 { background: #183f62; } .c3 { background: #4a1f5e; } .c4 { background: #3b2a12; } .c5 { background: #1f4a3a; } .c6 { background: #4a2a1f; } .c7 { background: #2a3a5e; }
+.big { border: 0; border-radius: 999px; background: var(--sun); color: #2b1a00; font: 800 clamp(17px, 4.6vw, 24px)/1 var(--font); padding: 15px 24px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; justify-content: center; touch-action: manipulation; }
 .big.alt { background: var(--space-2); color: var(--star); box-shadow: inset 0 0 0 3px var(--star); }
-.big:active { transform: scale(.96); }
-.row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-
-/* explore */
-.planets { flex: 1; display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; align-items: center; scroll-snap-type: x mandatory; padding-block: 8px; -webkit-overflow-scrolling: touch; }
-.pbtn { flex: none; scroll-snap-align: center; border: 0; background: transparent; color: var(--star); display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; font: 800 clamp(18px, 4.5vw, 24px)/1 var(--font); position: relative; padding: 6px; border-radius: 22px; touch-action: manipulation; }
-html[dir="rtl"] .pbtn { font-family: var(--font-ar); }
-.pbtn canvas { width: 132px; height: 132px; }
-.pbtn .got { position: absolute; top: 4px; inset-inline-end: 4px; width: 34px; height: 34px; }
-.pbtn:active { transform: scale(.95); }
-.visit { position: absolute; inset: 0; background: rgba(11,16,51,.94); border-radius: 28px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; box-sizing: border-box; }
-.visit canvas { width: 100%; flex: 1; min-height: 0; }
-.visit h2 { margin: 0; font-size: clamp(30px, 8vw, 48px); line-height: 1; color: var(--sun); }
-.visit p { margin: 0; font-size: clamp(19px, 5vw, 28px); font-weight: 700; text-align: center; max-width: 30ch; text-wrap: balance; line-height: 1.3; }
-
-/* games */
-.play { flex: 1; min-height: 0; position: relative; border-radius: 28px; overflow: hidden; background: rgba(22,29,82,.55); touch-action: none; }
-.play canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.badge { position: absolute; top: 12px; inset-inline-start: 12px; background: rgba(11,16,51,.7); border-radius: 999px; padding: 6px 16px; font-weight: 800; font-size: clamp(22px, 6vw, 32px); display: flex; align-items: center; gap: 8px; }
-.badge canvas { position: static; width: 34px; height: 34px; }
-.hold { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); width: 132px; height: 132px; border-radius: 50%; border: 6px solid var(--star); background: var(--nebula); color: #2b0018; font: 800 22px/1.1 var(--font); cursor: pointer; touch-action: none; text-align: center; padding: 6px; }
-html[dir="rtl"] .hold { font-family: var(--font-ar); }
+.row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 12px; }
+.play { flex: 1; min-height: 0; position: relative; border-radius: 26px; overflow: hidden; background: rgba(22,29,82,.55); touch-action: none; }
+.play canvas.main { position: absolute; inset: 0; width: 100%; height: 100%; }
+.badge { position: absolute; top: 10px; inset-inline-start: 10px; background: rgba(11,16,51,.75); border-radius: 999px; padding: 4px 14px; font-weight: 800; font-size: clamp(20px, 5.6vw, 30px); display: flex; align-items: center; gap: 8px; z-index: 2; }
+.badge canvas { width: 32px; height: 32px; }
+.hold { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); width: 128px; height: 128px; border-radius: 50%; border: 6px solid var(--star); background: var(--nebula); color: #2b0018; font: 800 22px/1.1 var(--font); cursor: pointer; touch-action: none; z-index: 2; }
 .hold.down { transform: translateX(-50%) scale(.93); background: var(--sun); }
-.hold:disabled { opacity: .4; }
-
-/* stickers */
-.book { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; align-content: start; padding-bottom: 8px; }
-.stk { background: var(--space-2); border-radius: 22px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; font-weight: 700; font-size: 16px; text-align: center; min-width: 0; }
-.stk canvas { width: 76px; height: 76px; }
-.stk.no { opacity: .45; }
-
-/* celebration */
-.toast { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); background: var(--sun); color: #2b1a00; border-radius: 30px; padding: 14px 24px; font-weight: 800; font-size: clamp(22px, 6vw, 34px); text-align: center; box-shadow: 0 10px 0 rgba(0,0,0,.25); z-index: 5; pointer-events: none; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px); box-sizing: border-box; }
-.toast canvas { width: 56px; height: 56px; flex: none; }
-@media (prefers-reduced-motion: no-preference) { .toast { animation: pop .45s cubic-bezier(.2,1.6,.4,1); } }
-@keyframes pop { from { transform: translate(-50%, -50%) scale(.3); } to { transform: translate(-50%, -50%) scale(1); } }
+.hold:disabled { opacity: .35; }
+.choices { position: absolute; inset: auto 10px 12px 10px; display: grid; gap: 10px; z-index: 2; }
+.choice { border: 0; border-radius: 24px; background: var(--space-2); color: var(--star); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; font: 800 clamp(16px, 4.2vw, 22px)/1.1 var(--font); box-shadow: inset 0 0 0 3px rgba(255,244,194,.2); touch-action: manipulation; min-width: 0; }
+.choice canvas { width: 84px; height: 84px; max-width: 100%; }
+.choice.num { font-size: clamp(34px, 10vw, 54px); padding: 14px 4px; }
+.choice.ok { box-shadow: inset 0 0 0 5px var(--mint); }
+.choice.no { opacity: .35; }
+/* map */
+.map { display: flex; flex-direction: column; gap: 16px; }
+.world { border-radius: 26px; padding: 12px; position: relative; }
+.world h2 { margin: 0 0 8px; font-size: clamp(20px, 5vw, 28px); display: flex; align-items: center; gap: 10px; }
+.world h2 canvas { width: 44px; height: 44px; }
+.lvls { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.lvl { border: 0; border-radius: 22px; background: rgba(11,16,51,.6); color: var(--star); cursor: pointer; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; font: 800 30px/1 var(--font); box-shadow: inset 0 0 0 3px rgba(255,244,194,.25); touch-action: manipulation; }
+.lvl .st { display: flex; gap: 2px; } .lvl .st canvas { width: 20px; height: 20px; }
+.lvl small { font-size: 13px; font-weight: 600; color: var(--dim); }
+.lvl.next { box-shadow: inset 0 0 0 4px var(--sun); background: rgba(255,201,60,.15); }
+.lvl:disabled { opacity: .35; cursor: default; }
+.rank { display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 800; font-size: clamp(17px, 4.4vw, 22px); }
+/* book & stickers */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.card { border: 0; background: var(--space-2); color: var(--star); border-radius: 22px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; font: 700 16px/1.15 var(--font); text-align: center; min-width: 0; cursor: pointer; touch-action: manipulation; }
+.card canvas { width: 76px; height: 76px; }
+.card.no { opacity: .45; cursor: default; }
+.detail { position: absolute; inset: 0; background: rgba(11,16,51,.96); border-radius: 26px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; box-sizing: border-box; z-index: 4; }
+.detail canvas { width: 100%; flex: 1; min-height: 0; }
+.detail h2 { margin: 0; font-size: clamp(28px, 8vw, 46px); color: var(--sun); line-height: 1; text-align: center; }
+.detail p { margin: 0; font-size: clamp(19px, 5vw, 27px); font-weight: 700; text-align: center; max-width: 30ch; text-wrap: balance; line-height: 1.3; min-height: 2.6em; }
+.dots { display: flex; gap: 6px; } .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); opacity: .4; } .dots i.on { background: var(--sun); opacity: 1; }
+/* level complete */
+.done { position: absolute; inset: 0; z-index: 6; background: rgba(11,16,51,.94); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; text-align: center; border-radius: 26px; }
+.done h2 { margin: 0; font-size: clamp(30px, 8vw, 48px); color: var(--sun); }
+.done .stars { display: flex; gap: 8px; } .done .stars canvas { width: 72px; height: 72px; }
+.fact { background: var(--space-2); border-radius: 24px; padding: 12px 16px; max-width: 32ch; font-size: clamp(18px, 4.8vw, 24px); font-weight: 700; line-height: 1.3; }
+.fact b { display: block; color: var(--mint); font-size: .8em; margin-bottom: 4px; }
+.toast { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); background: var(--sun); color: #2b1a00; border-radius: 30px; padding: 12px 22px; font-weight: 800; font-size: clamp(21px, 6vw, 32px); text-align: center; box-shadow: 0 10px 0 rgba(0,0,0,.25); z-index: 8; pointer-events: none; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px); box-sizing: border-box; }
+.toast canvas { width: 54px; height: 54px; flex: none; }
+@media (prefers-reduced-motion: no-preference) { .toast, .done .stars canvas { animation: pop .45s cubic-bezier(.2,1.6,.4,1) both; } .done .stars canvas:nth-child(2) { animation-delay: .25s; } .done .stars canvas:nth-child(3) { animation-delay: .5s; } }
+@keyframes pop { from { transform: scale(.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.toast { animation-name: popc; } @keyframes popc { from { transform: translate(-50%, -50%) scale(.3); } to { transform: translate(-50%, -50%) scale(1); } }
 .parent { font-size: 14px; color: var(--dim); text-align: center; }
 .parent button { background: none; border: 0; color: var(--dim); text-decoration: underline; font: inherit; cursor: pointer; padding: 8px; }
 @media (min-width: 760px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
@@ -100,63 +103,165 @@ html[dir="rtl"] .hold { font-family: var(--font-ar); }
 <script>
 (function () {
 "use strict";
-/* ---------------- words (Arabic and English) ---------------- */
+/* ================= words ================= */
 const W = {
   en: {
-    title: "Little Astronaut", explore: "Planets", build: "Build a station", catch: "Catch stars", launch: "Fly to the Moon", stickers: "My stickers",
-    homeHint: "Where shall we go today?", exploreHint: "Tap a planet to fly there!", listen: "Listen again", planets: "More planets",
-    buildHint: "Drag each piece to its shape.", buildDone: "Your space station is ready!", again: "Build again",
-    catchHint: "Move the rocket and catch the stars!", catchDone: "Wow! Twenty stars!",
-    launchHint: "Hold the pink button to fill the fuel. Then let go!", hold: "Hold", low: "More fuel! Try again.", landed: "You landed on the Moon!", fly: "Fly again",
-    newSticker: "New sticker!", of: "of", reset: "Start the sticker book again", resetSure: "Tap again to clear all stickers", langBtn: "ع", langName: "العربية", back: "Back",
-    bonk: "Bump! Keep going!",
-    station: "Space station", catcher: "Star catcher", landing: "Moon landing",
+    title: "Little Astronaut", journey: "Space Journey", journeySub: "25 levels", free: "Free play", book: "Space Book", stickers: "My stickers", back: "Back", langBtn: "ع", langName: "العربية",
+    homeHint: "Hi! I'm Nova. Where shall we go today?", mapHint: "Pick a level. Each one unlocks the next!",
+    level: "Level", stars: "stars", next: "Next level", toMap: "Map", again: "Play again", didYouKnow: "Did you know?", levelDone: "Level complete!", allDone: "You finished the whole journey!",
+    wMoon: "Moon World", wMars: "Mars World", wJupiter: "Jupiter World", wSaturn: "Saturn World",
+    rank0: "Space Cadet", rank1: "Space Pilot", rank2: "Captain", rank3: "Mission Commander", rankUp: "New rank!",
+    gCatch: "Catch stars", gBuild: "Build a station", gLaunch: "Launch the rocket", gQuiz: "Planet quiz", gCount: "Count the stars", gConnect: "Star pictures", gExplore: "Planets",
+    catchHint: n => "Catch " + n + " stars! Move the rocket with your finger.", catchBump: "Watch out for rocks!",
+    buildHint: "Drag each piece to its shape.", buildDone: "Your space station is ready!",
+    launchHint: t => "Hold the pink button to fill the fuel. Stop in the green part, then let go! We are going to " + t + ".",
+    low: "More fuel! Try again.", high: "Too much fuel! The rocket flew past. Try again.", arrived: t => "You landed on " + t + "!", flyby: t => "You flew past " + t + "!",
+    countHint: "Tap each star to count it.", howMany: "How many stars?", right: ["Yes!", "Great job!", "Super!", "Well done!"], tryAgain: "Try again!",
+    connectHint: "Tap the stars in order: 1, 2, 3…", connectDone: c => "You made " + c + "!",
+    exploreHint: "Tap a planet to fly there!", more: "Tell me more", listen: "Listen", newSticker: "New sticker!",
+    of: "of", reset: "Start everything again", resetSure: "Tap again to clear all stars and stickers", hold: "Hold",
+    numbers: ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"],
   },
   ar: {
-    title: "رائد الفضاء الصغير", explore: "الكواكب", build: "ابنِ المحطة", catch: "اجمع النجوم", launch: "طِر إلى القمر", stickers: "ملصقاتي",
-    homeHint: "إلى أين نذهب اليوم؟", exploreHint: "المس كوكبًا لتطير إليه!", listen: "استمع مرة أخرى", planets: "كواكب أخرى",
-    buildHint: "اسحب كل قطعة إلى شكلها.", buildDone: "محطتك الفضائية جاهزة!", again: "ابنِ من جديد",
-    catchHint: "حرّك الصاروخ واجمع النجوم!", catchDone: "رائع! عشرون نجمة!",
-    launchHint: "اضغط مطولًا على الزر الوردي لتملأ الوقود، ثم اتركه!", hold: "اضغط", low: "نحتاج وقودًا أكثر! حاول مرة أخرى.", landed: "هبطت على القمر!", fly: "طِر مرة أخرى",
-    newSticker: "ملصق جديد!", of: "من", reset: "ابدأ دفتر الملصقات من جديد", resetSure: "المس مرة أخرى لمسح كل الملصقات", langBtn: "EN", langName: "English", back: "رجوع",
-    bonk: "اصطدام! استمر!",
-    station: "محطة فضائية", catcher: "جامع النجوم", landing: "الهبوط على القمر",
+    title: "رائد الفضاء الصغير", journey: "رحلة الفضاء", journeySub: "٢٥ مرحلة", free: "لعب حر", book: "كتاب الفضاء", stickers: "ملصقاتي", back: "رجوع", langBtn: "EN", langName: "English",
+    homeHint: "مرحبًا! أنا نوفا. إلى أين نذهب اليوم؟", mapHint: "اختر مرحلة. كل مرحلة تفتح التي بعدها!",
+    level: "المرحلة", stars: "نجوم", next: "المرحلة التالية", toMap: "الخريطة", again: "العب مرة أخرى", didYouKnow: "هل تعلم؟", levelDone: "أنهيت المرحلة!", allDone: "أكملت الرحلة كلها!",
+    wMoon: "عالم القمر", wMars: "عالم المريخ", wJupiter: "عالم المشتري", wSaturn: "عالم زحل",
+    rank0: "متدرب فضاء", rank1: "طيار فضاء", rank2: "قبطان", rank3: "قائد المهمة", rankUp: "رتبة جديدة!",
+    gCatch: "اجمع النجوم", gBuild: "ابنِ المحطة", gLaunch: "أطلق الصاروخ", gQuiz: "مسابقة الكواكب", gCount: "عُدّ النجوم", gConnect: "صور النجوم", gExplore: "الكواكب",
+    catchHint: n => "اجمع " + n + " نجوم! حرّك الصاروخ بإصبعك.", catchBump: "انتبه للصخور!",
+    buildHint: "اسحب كل قطعة إلى شكلها.", buildDone: "محطتك الفضائية جاهزة!",
+    launchHint: t => "اضغط مطولًا على الزر الوردي لتملأ الوقود، توقف في الجزء الأخضر ثم اتركه! سنذهب إلى " + t + ".",
+    low: "نحتاج وقودًا أكثر! حاول مرة أخرى.", high: "وقود كثير! تجاوز الصاروخ الهدف. حاول مرة أخرى.", arrived: t => "هبطت على " + t + "!", flyby: t => "حلّقت بجانب " + t + "!",
+    countHint: "المس كل نجمة لتعدّها.", howMany: "كم نجمة؟", right: ["نعم!", "أحسنت!", "رائع!", "ممتاز!"], tryAgain: "حاول مرة أخرى!",
+    connectHint: "المس النجوم بالترتيب: ١، ٢، ٣…", connectDone: c => "رسمت " + c + "!",
+    exploreHint: "المس كوكبًا لتطير إليه!", more: "أخبرني المزيد", listen: "استمع", newSticker: "ملصق جديد!",
+    of: "من", reset: "ابدأ كل شيء من جديد", resetSure: "المس مرة أخرى لمسح كل النجوم والملصقات", hold: "اضغط",
+    numbers: ["صفر", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة", "عشرة", "أحد عشر", "اثنا عشر"],
   },
 };
-/* Bodies in order from the Sun. Facts checked for children: short, true, one idea each. */
-const BODIES = [
-  { id: "sun", en: ["Sun", "The Sun is a star. It gives us light and warmth."], ar: ["الشمس", "الشمس نجم كبير جدًا، تعطينا الضوء والدفء."] },
-  { id: "mercury", en: ["Mercury", "Mercury is closest to the Sun. Its year is only 88 days!"], ar: ["عطارد", "عطارد أقرب كوكب إلى الشمس. سنته ٨٨ يومًا فقط!"] },
-  { id: "venus", en: ["Venus", "Venus is the hottest planet. Hotter than an oven!"], ar: ["الزهرة", "الزهرة أسخن كوكب. أسخن من الفرن!"] },
-  { id: "earth", en: ["Earth", "Earth is our home. It has water, air and life."], ar: ["الأرض", "الأرض بيتنا. فيها ماء وهواء وحياة."] },
-  { id: "moon", en: ["Moon", "Astronauts walked on the Moon in 1969."], ar: ["القمر", "مشى رواد الفضاء على القمر سنة ١٩٦٩."] },
-  { id: "mars", en: ["Mars", "Mars is the red planet. Its dust is like rust."], ar: ["المريخ", "المريخ هو الكوكب الأحمر. غباره يشبه الصدأ."] },
-  { id: "jupiter", en: ["Jupiter", "Jupiter is the biggest planet. It has a giant storm."], ar: ["المشتري", "المشتري أكبر كوكب. فيه عاصفة عملاقة."] },
-  { id: "saturn", en: ["Saturn", "Saturn has beautiful rings made of ice and rock."], ar: ["زحل", "لزحل حلقات جميلة من الجليد والصخور."] },
-  { id: "uranus", en: ["Uranus", "Uranus spins lying on its side!"], ar: ["أورانوس", "أورانوس يدور وهو مستلقٍ على جنبه!"] },
-  { id: "neptune", en: ["Neptune", "Neptune is the farthest planet. It is very windy."], ar: ["نبتون", "نبتون أبعد كوكب. رياحه قوية جدًا."] },
-];
-const STICKERS = BODIES.map(b => b.id).concat(["station", "catcher", "landing"]);
-
-/* ---------------- storage (per device, optional) ---------------- */
-const store = {
-  get(k, d) { try { const v = localStorage.getItem("la:" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem("la:" + k, JSON.stringify(v)); } catch (e) {} },
+/* Facts written for young children: short, true, one idea each. */
+const BODIES = {
+  sun: { en: ["Sun", ["The Sun is a star. It gives us light and warmth.", "The Sun is so big that about a million Earths could fit inside it.", "Sunlight takes about 8 minutes to reach Earth."]],
+         ar: ["الشمس", ["الشمس نجم، تعطينا الضوء والدفء.", "الشمس كبيرة جدًا، يمكن أن يتسع داخلها نحو مليون أرض.", "يصل ضوء الشمس إلى الأرض في نحو ٨ دقائق."]] },
+  mercury: { en: ["Mercury", ["Mercury is the closest planet to the Sun.", "Mercury is the smallest planet.", "A year on Mercury is only 88 days."]],
+             ar: ["عطارد", ["عطارد أقرب كوكب إلى الشمس.", "عطارد أصغر كوكب.", "السنة على عطارد ٨٨ يومًا فقط."]] },
+  venus: { en: ["Venus", ["Venus is the hottest planet. Hotter than an oven!", "Venus is the brightest planet in our night sky.", "Venus spins the other way from most planets."]],
+           ar: ["الزهرة", ["الزهرة أسخن كوكب، أسخن من الفرن!", "الزهرة ألمع كوكب في سماء الليل.", "الزهرة تدور بعكس اتجاه معظم الكواكب."]] },
+  earth: { en: ["Earth", ["Earth is our home. It has water, air and life.", "Most of Earth is covered by oceans.", "Earth spins once every day. That gives us day and night."]],
+           ar: ["الأرض", ["الأرض بيتنا، فيها ماء وهواء وحياة.", "معظم الأرض مغطى بالمحيطات.", "تدور الأرض حول نفسها مرة كل يوم، فيأتي الليل والنهار."]] },
+  moon: { en: ["the Moon", ["Astronauts walked on the Moon in 1969.", "The Moon has no air, so footprints there can last a very long time.", "The Moon shines because it reflects light from the Sun."]],
+          ar: ["القمر", ["مشى رواد الفضاء على القمر سنة ١٩٦٩.", "لا يوجد هواء على القمر، لذلك تبقى آثار الأقدام هناك زمنًا طويلًا جدًا.", "يضيء القمر لأنه يعكس ضوء الشمس."]] },
+  mars: { en: ["Mars", ["Mars is the red planet. Its dust is like rust.", "Mars has the tallest volcano we know, called Olympus Mons.", "Robot rovers drive on Mars and send us pictures."]],
+          ar: ["المريخ", ["المريخ هو الكوكب الأحمر، غباره يشبه الصدأ.", "على المريخ أعلى بركان نعرفه، اسمه أوليمبوس مونس.", "مركبات آلية تسير على المريخ وترسل لنا الصور."]] },
+  jupiter: { en: ["Jupiter", ["Jupiter is the biggest planet.", "Jupiter has a giant storm called the Great Red Spot.", "Jupiter has dozens of moons!"]],
+             ar: ["المشتري", ["المشتري أكبر كوكب.", "في المشتري عاصفة عملاقة اسمها البقعة الحمراء العظيمة.", "للمشتري عشرات الأقمار!"]] },
+  saturn: { en: ["Saturn", ["Saturn has beautiful rings made of ice and rock.", "Saturn is so light it could float in a giant bathtub!", "Saturn is the second biggest planet."]],
+            ar: ["زحل", ["لزحل حلقات جميلة من الجليد والصخور.", "زحل خفيف لدرجة أنه قد يطفو في حوض ماء عملاق!", "زحل ثاني أكبر كوكب."]] },
+  uranus: { en: ["Uranus", ["Uranus spins lying on its side!", "Uranus is an ice giant. It is very, very cold.", "Uranus looks blue-green."]],
+            ar: ["أورانوس", ["أورانوس يدور وهو مستلقٍ على جنبه!", "أورانوس عملاق جليدي، بارد جدًا جدًا.", "لون أورانوس أزرق مخضر."]] },
+  neptune: { en: ["Neptune", ["Neptune is the farthest planet from the Sun.", "Neptune has the strongest winds of any planet.", "One year on Neptune lasts about 165 Earth years."]],
+             ar: ["نبتون", ["نبتون أبعد كوكب عن الشمس.", "رياح نبتون أقوى رياح بين الكواكب.", "السنة على نبتون تعادل نحو ١٦٥ سنة أرضية."]] },
+  pluto: { en: ["Pluto", ["Pluto is a dwarf planet, smaller than our Moon.", "Pluto has a big heart shape on it!"]],
+           ar: ["بلوتو", ["بلوتو كوكب قزم، أصغر من قمرنا.", "على بلوتو شكل كبير يشبه القلب!"]] },
+  comet: { en: ["Comet", ["A comet is a ball of ice and dust with a long glowing tail.", "A comet's tail points away from the Sun."]],
+           ar: ["المذنّب", ["المذنّب كرة من الجليد والغبار لها ذيل طويل مضيء.", "ذيل المذنّب يتجه بعيدًا عن الشمس."]] },
+  galaxy: { en: ["Milky Way", ["Our Sun is one of billions of stars in the Milky Way galaxy.", "On a dark night, the Milky Way looks like a cloudy band across the sky."]],
+            ar: ["درب التبانة", ["شمسنا واحدة من مليارات النجوم في مجرة درب التبانة.", "في الليلة المظلمة يبدو درب التبانة شريطًا ضبابيًا في السماء."]] },
+  iss: { en: ["Space Station", ["Astronauts live and work on the International Space Station.", "The Space Station goes around Earth about every 90 minutes."]],
+         ar: ["محطة الفضاء", ["يعيش رواد الفضاء ويعملون في محطة الفضاء الدولية.", "تدور محطة الفضاء حول الأرض مرة كل ٩٠ دقيقة تقريبًا."]] },
 };
+const ORDER = ["sun", "mercury", "venus", "earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
+const BOOK = ORDER.concat(["pluto", "comet", "galaxy", "iss"]);
+const PLANETS = ["mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune"];
+const CONST = {
+  cassiopeia: { en: ["Cassiopeia", "Cassiopeia looks like the letter W."], ar: ["ذات الكرسي", "كوكبة ذات الكرسي تشبه حرف W."], p: [[.1, .35], [.3, .66], [.5, .42], [.7, .7], [.9, .32]], e: [[0, 1], [1, 2], [2, 3], [3, 4]] },
+  cross: { en: ["the Southern Cross", "The Southern Cross is a small cross of bright stars."], ar: ["الصليب الجنوبي", "الصليب الجنوبي صليب صغير من نجوم لامعة."], p: [[.5, .1], [.25, .45], [.62, .58], [.78, .48], [.5, .88]], e: [[0, 4], [1, 3]] },
+  dipper: { en: ["the Big Dipper", "Seven bright stars make the Big Dipper. It looks like a big spoon."], ar: ["الدب الأكبر", "سبعة نجوم لامعة تشكّل الدب الأكبر، يشبه مغرفة كبيرة."], p: [[.08, .28], [.27, .26], [.42, .36], [.56, .45], [.6, .7], [.86, .68], [.9, .44]], e: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 3]] },
+  orion: { en: ["Orion", "Orion has three stars in a row called Orion's Belt."], ar: ["الجبّار", "في كوكبة الجبّار ثلاثة نجوم في صف واحد اسمها حزام الجبّار."], p: [[.18, .1], [.82, .14], [.3, .54], [.5, .48], [.7, .42], [.22, .9], [.8, .88]], e: [[0, 2], [1, 4], [2, 3], [3, 4], [2, 5], [4, 6]] },
+};
+const CONST_INTRO = { en: "Constellations are pictures made by stars in the sky.", ar: "الكوكبات صور ترسمها النجوم في السماء." };
+/* Quiz questions: the answer, and who may appear as other choices. */
+const QS = {
+  red: { a: "mars", from: PLANETS, en: "Which one is the red planet?", ar: "أيها الكوكب الأحمر؟" },
+  home: { a: "earth", from: PLANETS, en: "Which one is our home?", ar: "أيها بيتنا؟" },
+  rings: { a: "saturn", from: ["mercury", "venus", "earth", "mars", "neptune"], en: "Which planet has big rings?", ar: "أي كوكب له حلقات كبيرة؟" },
+  biggest: { a: "jupiter", from: ["mercury", "venus", "earth", "mars"], en: "Which planet is the biggest?", ar: "أي كوكب هو الأكبر؟" },
+  star: { a: "sun", from: ["earth", "moon", "mars", "jupiter", "neptune"], en: "Which one is a star?", ar: "أيها نجم؟" },
+  walked: { a: "moon", from: ["mars", "jupiter", "saturn", "venus"], en: "Where did astronauts walk?", ar: "أين مشى رواد الفضاء؟" },
+  hottest: { a: "venus", from: ["earth", "mars", "uranus", "neptune"], en: "Which planet is the hottest?", ar: "أي كوكب هو الأسخن؟" },
+  closest: { a: "mercury", from: ["earth", "jupiter", "saturn", "neptune"], en: "Which planet is closest to the Sun?", ar: "أي كوكب هو الأقرب إلى الشمس؟" },
+  farthest: { a: "neptune", from: ["mercury", "venus", "earth", "mars"], en: "Which planet is farthest from the Sun?", ar: "أي كوكب هو الأبعد عن الشمس؟" },
+  side: { a: "uranus", from: ["earth", "mars", "jupiter", "venus"], en: "Which planet spins on its side?", ar: "أي كوكب يدور على جنبه؟" },
+  findmars: { a: "mars", from: ["earth", "jupiter", "neptune", "venus"], find: true },
+  findsaturn: { a: "saturn", from: ["earth", "mars", "venus", "neptune"], find: true },
+  findearth: { a: "earth", from: ["mars", "moon", "jupiter"], find: true },
+  findmoon: { a: "moon", from: ["earth", "mars", "sun"], find: true },
+  findvenus: { a: "venus", from: ["earth", "mars", "neptune", "mercury"], find: true },
+  findjupiter: { a: "jupiter", from: ["saturn", "mars", "earth", "uranus"], find: true },
+};
+/* 25 levels in four worlds. Each step asks a little more. */
+const LEVELS = [
+  { g: "catch", goal: 5, speed: .7, rocks: 0 },
+  { g: "quiz", rounds: 2, n: 2, qs: ["findearth", "findmoon"] },
+  { g: "build", pieces: 3, tol: 1.8, colored: true },
+  { g: "launch", target: "moon", min: .55, max: 1 },
+  { g: "count", n: 3, choices: 2 },
+  { g: "quiz", rounds: 3, n: 2, qs: ["red", "home", "rings"] },
+  { g: "catch", goal: 8, speed: .85, rocks: .3 },
+  { g: "connect", c: "cassiopeia" },
+  { g: "build", pieces: 4, tol: 1.55, colored: true },
+  { g: "launch", target: "moon", min: .72, max: 1 },
+  { g: "count", n: 5, choices: 3 },
+  { g: "quiz", rounds: 3, n: 3, qs: ["biggest", "star", "walked", "findmars", "findsaturn"] },
+  { g: "catch", goal: 11, speed: 1, rocks: .55 },
+  { g: "connect", c: "cross" },
+  { g: "build", pieces: 5, tol: 1.35, colored: true },
+  { g: "launch", target: "mars", min: .8, max: .96 },
+  { g: "count", n: 7, choices: 3 },
+  { g: "quiz", rounds: 4, n: 3, qs: ["hottest", "closest", "farthest", "findvenus", "findjupiter", "red"] },
+  { g: "catch", goal: 14, speed: 1.2, rocks: .8, bump: true },
+  { g: "connect", c: "dipper" },
+  { g: "build", pieces: 6, tol: 1.2, colored: false },
+  { g: "launch", target: "jupiter", min: .86, max: .95 },
+  { g: "count", n: 10, choices: 4 },
+  { g: "connect", c: "orion" },
+  { g: "quiz", rounds: 5, n: 4, qs: Object.keys(QS) },
+];
+const WORLDS = [["wMoon", "moon", 0, 6], ["wMars", "mars", 6, 12], ["wJupiter", "jupiter", 12, 18], ["wSaturn", "saturn", 18, 25]];
+const FREE = {
+  catch: { g: "catch", goal: 20, speed: .9, rocks: .4 }, build: { g: "build", pieces: 4, tol: 1.5, colored: true },
+  launch: { g: "launch", target: "moon", min: .7, max: 1 }, quiz: { g: "quiz", rounds: 5, n: 3, qs: Object.keys(QS) },
+  count: { g: "count", n: 6, choices: 3 }, connect: { g: "connect", c: "random" },
+};
+const STICKERS = ORDER.concat(["pluto", "comet", "galaxy", "iss", "station", "catcher", "landing", "marslanding", "jupiterflyby", "cassiopeia", "cross", "dipper", "orion"]);
+const RANKS = [0, 15, 35, 60];
+
+/* ================= state ================= */
+const store = { get(k, d) { try { const v = localStorage.getItem("la:" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem("la:" + k, JSON.stringify(v)); } catch (e) {} } };
 let lang = store.get("lang", (navigator.language || "").toLowerCase().startsWith("ar") ? "ar" : "en");
 let got = new Set(store.get("stickers", []));
+let prog = store.get("progress", {});   // level index -> best stars
+let factSeen = store.get("factSeen", 0);
 const t = k => W[lang][k];
 const num = n => n.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
-const nameOf = id => { const b = BODIES.find(x => x.id === id); return b ? b[lang][0] : t(id); };
+const name = id => BODIES[id] ? BODIES[id][lang][0] : CONST[id] ? CONST[id][lang][0] : t(id);
+const facts = id => BODIES[id] ? BODIES[id][lang][1] : CONST[id] ? [CONST[id][lang][1]] : [];
+const totalStars = () => Object.values(prog).reduce((s, v) => s + v, 0);
+const rankOf = s => RANKS.reduce((r, min, i) => s >= min ? i : r, 0);
+const unlocked = i => i === 0 || prog[i - 1] > 0;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function award(id) { if (!id || got.has(id)) return false; got.add(id); store.set("stickers", [...got]); return true; }
 
-/* ---------------- voice and sound ---------------- */
+/* ================= voice and sound ================= */
 function say(text) {
   try {
-    if (!("speechSynthesis" in window)) return;
+    if (!("speechSynthesis" in window) || !text) return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang === "ar" ? "ar-SA" : "en-US"; u.rate = .9; u.pitch = 1.1;
-    const v = speechSynthesis.getVoices().find(x => x.lang && x.lang.toLowerCase().startsWith(lang));
+    const v = (speechSynthesis.getVoices() || []).find(x => x.lang && x.lang.toLowerCase().startsWith(lang));
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) {}
@@ -174,12 +279,13 @@ const sfx = {
   ding() { tone(1046, .25, "triangle", .16); tone(1568, .3, "sine", .1, .06); },
   pop() { tone(660, .12, "square", .06); tone(990, .16, "sine", .1, .05); },
   bonk() { tone(140, .22, "sawtooth", .07); },
+  tick(i) { tone(523 * Math.pow(2, (i % 8) / 12 * 2), .2, "triangle", .14); },
   whoosh() { const a = audio(); if (!a) return; const o = a.createOscillator(), g = a.createGain(); o.type = "sawtooth"; o.frequency.setValueAtTime(120, a.currentTime); o.frequency.exponentialRampToValueAtTime(900, a.currentTime + .9); g.gain.setValueAtTime(.05, a.currentTime); g.gain.exponentialRampToValueAtTime(.0001, a.currentTime + 1); o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + 1.05); },
   yay() { [523, 659, 784, 1046].forEach((f, i) => tone(f, .35, "triangle", .14, i * .12)); },
 };
 document.addEventListener("pointerdown", () => audio(), { once: true });
 
-/* ---------------- drawing ---------------- */
+/* ================= drawing ================= */
 const RM = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 function fit(cv) {
   const dpr = Math.min(3, window.devicePixelRatio || 1), w = cv.clientWidth, h = cv.clientHeight;
@@ -190,6 +296,7 @@ const LOOK = {
   sun: ["#fffbe0", "#ffd23f", "#ff8a1f"], mercury: ["#e8e2d8", "#a39a8f", "#5e5852"], venus: ["#fff2c8", "#eab866", "#a06a2a"],
   earth: ["#b8e4ff", "#2f86e0", "#163c86"], moon: ["#f5f5f0", "#c4c4bc", "#7d7d77"], mars: ["#ffc09a", "#dd5a2e", "#7a2412"],
   jupiter: ["#fbe7cb", "#d9a877", "#8a5a36"], saturn: ["#fff1c9", "#e2c27f", "#9a7a3e"], uranus: ["#e0fcff", "#80dbe8", "#3a8ea0"], neptune: ["#b9cfff", "#4067e6", "#1b2f8a"],
+  pluto: ["#f7e9dc", "#d2b59a", "#7d5f48"],
 };
 function planet(x, cx, cy, r, id, time) {
   const c = LOOK[id]; time = time || 0;
@@ -203,14 +310,15 @@ function planet(x, cx, cy, r, id, time) {
   if (id === "moon" || id === "mercury") { x.fillStyle = "rgba(0,0,0,.14)"; [[-.3, -.2, .2], [.3, .1, .15], [-.05, .4, .12], [.35, -.4, .1]].forEach(([dx, dy, rr]) => { x.beginPath(); x.arc(cx + dx * r, cy + dy * r, rr * r, 0, 7); x.fill(); }); }
   if (id === "mars") { x.fillStyle = "rgba(255,255,255,.8)"; x.beginPath(); x.ellipse(cx, cy - r * .93, r * .35, r * .1, 0, 0, 7); x.fill(); x.fillStyle = "rgba(90,20,5,.35)"; x.beginPath(); x.ellipse(cx - r * .2, cy + r * .2, r * .35, r * .14, .3, 0, 7); x.fill(); }
   if (id === "neptune") { x.fillStyle = "rgba(20,30,110,.5)"; x.beginPath(); x.ellipse(cx - r * .25, cy + r * .1, r * .2, r * .1, 0, 0, 7); x.fill(); }
+  if (id === "pluto") { x.fillStyle = "#fbf3ea"; x.beginPath(); const hx = cx + r * .15, hy = cy + r * .1, s = r * .45; x.moveTo(hx, hy + s * .8); x.bezierCurveTo(hx - s * 1.3, hy - s * .1, hx - s * .5, hy - s, hx, hy - s * .35); x.bezierCurveTo(hx + s * .5, hy - s, hx + s * 1.3, hy - s * .1, hx, hy + s * .8); x.fill(); }
   x.restore();
   if (id === "saturn") { x.save(); x.strokeStyle = "#f2e2b2"; x.lineWidth = r * .22; x.beginPath(); x.ellipse(cx, cy, r * 1.75, r * .5, -.35, 0, Math.PI); x.stroke(); x.restore(); }
   if (id === "uranus") { x.save(); x.strokeStyle = "rgba(220,250,255,.6)"; x.lineWidth = r * .07; x.beginPath(); x.ellipse(cx, cy, r * .45, r * 1.5, .15, 0, 7); x.stroke(); x.restore(); }
 }
-function star(x, cx, cy, r, col) {
+function star(x, cx, cy, r, col, edge) {
   x.save(); x.fillStyle = col || "#ffd23f"; x.beginPath();
   for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .45 : r; x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
-  x.closePath(); x.fill(); x.lineWidth = Math.max(1.5, r * .12); x.strokeStyle = "#fff6c8"; x.stroke(); x.restore();
+  x.closePath(); x.fill(); x.lineWidth = Math.max(1.5, r * .12); x.strokeStyle = edge || "#fff6c8"; x.stroke(); x.restore();
 }
 function rocket(x, cx, cy, s, ang, flame) {
   x.save(); x.translate(cx, cy); x.rotate(ang || 0); x.scale(s / 100, s / 100);
@@ -222,202 +330,205 @@ function rocket(x, cx, cy, s, ang, flame) {
   x.fillStyle = "#fff"; x.beginPath(); x.arc(-2.5, -6.5, 2.5, 0, 7); x.fill();
   x.restore();
 }
-function stationIcon(x, cx, cy, r) {
-  x.save(); x.fillStyle = "#4c7bff"; x.fillRect(cx - r, cy - r * .18, r * .55, r * .36); x.fillRect(cx + r * .45, cy - r * .18, r * .55, r * .36);
-  x.fillStyle = "#d9def5"; x.beginPath(); x.arc(cx, cy, r * .42, 0, 7); x.fill();
-  x.fillStyle = "#ffd23f"; x.beginPath(); x.arc(cx, cy, r * .16, 0, 7); x.fill(); x.restore();
+function nova(x, cx, cy, r, blink) {   // Nova, the helper astronaut
+  x.save();
+  x.fillStyle = "#f6f3ea"; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  x.fillStyle = "#2b3a8f"; x.beginPath(); x.ellipse(cx, cy + r * .05, r * .72, r * .58, 0, 0, 7); x.fill();
+  x.fillStyle = "#ffcf9e"; x.beginPath(); x.ellipse(cx, cy + r * .1, r * .55, r * .45, 0, 0, 7); x.fill();
+  x.fillStyle = "#2b1a00";
+  if (blink) { x.fillRect(cx - r * .28, cy + r * .02, r * .16, r * .04); x.fillRect(cx + r * .12, cy + r * .02, r * .16, r * .04); }
+  else { x.beginPath(); x.arc(cx - r * .2, cy + r * .04, r * .07, 0, 7); x.arc(cx + r * .2, cy + r * .04, r * .07, 0, 7); x.fill(); }
+  x.strokeStyle = "#2b1a00"; x.lineWidth = r * .06; x.beginPath(); x.arc(cx, cy + r * .18, r * .16, .2, Math.PI - .2); x.stroke();
+  x.fillStyle = "rgba(255,255,255,.55)"; x.beginPath(); x.ellipse(cx - r * .38, cy - r * .3, r * .14, r * .08, -.6, 0, 7); x.fill();
+  x.fillStyle = "#e8434f"; x.beginPath(); x.arc(cx + r * .75, cy - r * .55, r * .14, 0, 7); x.fill();
+  x.restore();
 }
 function iconFor(x, w, h, id, time) {
   const cx = w / 2, cy = h / 2, r = Math.min(w, h) * .3;
   if (LOOK[id]) planet(x, cx, cy, id === "saturn" ? r * .8 : r, id, time);
-  else if (id === "station") stationIcon(x, cx, cy, r * 1.2);
+  else if (id === "station" || id === "iss") { x.save(); x.fillStyle = "#4c7bff"; x.fillRect(cx - r * 1.2, cy - r * .22, r * .66, r * .44); x.fillRect(cx + r * .54, cy - r * .22, r * .66, r * .44); x.fillStyle = "#d9def5"; x.beginPath(); x.arc(cx, cy, r * .5, 0, 7); x.fill(); x.fillStyle = "#ffd23f"; x.beginPath(); x.arc(cx, cy, r * .2, 0, 7); x.fill(); x.restore(); }
   else if (id === "catcher") star(x, cx, cy, r * 1.1);
-  else if (id === "landing") { planet(x, cx, cy + r * .4, r * .9, "moon"); x.fillStyle = "#e8434f"; x.fillRect(cx + r * .15, cy - r * 1.05, r * .5, r * .32); x.fillStyle = "#fff"; x.fillRect(cx + r * .1, cy - r * 1.1, r * .07, r * 1.05); }
+  else if (id === "landing" || id === "marslanding") { planet(x, cx, cy + r * .4, r * .9, id === "landing" ? "moon" : "mars"); x.fillStyle = "#e8434f"; x.fillRect(cx + r * .15, cy - r * 1.05, r * .5, r * .32); x.fillStyle = "#fff"; x.fillRect(cx + r * .1, cy - r * 1.1, r * .07, r * 1.05); }
+  else if (id === "jupiterflyby") { planet(x, cx + r * .2, cy + r * .2, r * .85, "jupiter"); rocket(x, cx - r * .7, cy - r * .5, r * 1.1, .9, false); }
+  else if (id === "comet") { const g = x.createLinearGradient(cx - r * 1.3, cy + r * 1.1, cx + r * .4, cy - r * .3); g.addColorStop(0, "rgba(111,240,196,0)"); g.addColorStop(1, "rgba(180,240,255,.9)"); x.fillStyle = g; x.beginPath(); x.moveTo(cx + r * .3, cy - r * .55); x.lineTo(cx - r * 1.3, cy + r * 1.2); x.lineTo(cx + r * .55, cy - r * .2); x.fill(); x.fillStyle = "#e9fbff"; x.beginPath(); x.arc(cx + r * .45, cy - r * .4, r * .32, 0, 7); x.fill(); }
+  else if (id === "galaxy") { x.save(); x.translate(cx, cy); for (let i = 0; i < 160; i++) { const a = i * .23, d = i / 160 * r * 1.2; for (const s of [0, Math.PI]) { x.fillStyle = i % 3 ? "#cdb8ff" : "#fff4c2"; x.globalAlpha = 1 - i / 200; x.beginPath(); x.arc(Math.cos(a + s) * d, Math.sin(a + s) * d * .6, 1.2 + (1 - i / 160) * 1.5, 0, 7); x.fill(); } } x.globalAlpha = 1; x.fillStyle = "#fff4c2"; x.beginPath(); x.arc(0, 0, r * .18, 0, 7); x.fill(); x.restore(); }
+  else if (CONST[id]) { const c = CONST[id], pts = c.p.map(([a, b]) => [cx - r * 1.3 + a * r * 2.6, cy - r * 1.2 + b * r * 2.4]); x.strokeStyle = "#aab3e8"; x.lineWidth = 2; c.e.forEach(([a, b]) => { x.beginPath(); x.moveTo(pts[a][0], pts[a][1]); x.lineTo(pts[b][0], pts[b][1]); x.stroke(); }); pts.forEach(([px, py]) => star(x, px, py, r * .2)); }
 }
 function iconCanvas(id, size) { const cv = document.createElement("canvas"); cv.style.width = size + "px"; cv.style.height = size + "px"; requestAnimationFrame(() => { const { x, w, h } = fit(cv); iconFor(x, w, h, id, 0); }); return cv; }
+function starCanvas(size, on) { const cv = document.createElement("canvas"); cv.style.width = size + "px"; cv.style.height = size + "px"; requestAnimationFrame(() => { const { x, w, h } = fit(cv); star(x, w / 2, h / 2, Math.min(w, h) * .45, on ? "#ffd23f" : "rgba(170,179,232,.25)", on ? "#fff6c8" : "rgba(170,179,232,.6)"); }); return cv; }
 
 /* sky */
-const sky = document.getElementById("sky"); let stars = [];
+const sky = document.getElementById("sky"); let skyStars = [];
 function drawSky(time) {
   const { x, w, h } = fit(sky);
-  if (stars.length === 0 || stars.w !== w) { stars = Array.from({ length: Math.round(w * h / 2600) }, () => ({ x: Math.random() * w, y: Math.random() * h, r: Math.random() * 1.6 + .3, p: Math.random() * 6 })); stars.w = w; }
+  if (skyStars.length === 0 || skyStars.w !== w) { skyStars = Array.from({ length: Math.round(w * h / 2600) }, () => ({ x: Math.random() * w, y: Math.random() * h, r: Math.random() * 1.6 + .3, p: Math.random() * 6 })); skyStars.w = w; }
   const g = x.createLinearGradient(0, 0, w, h); g.addColorStop(0, "#0b1033"); g.addColorStop(.6, "#130f3d"); g.addColorStop(1, "#2a0f45"); x.fillStyle = g; x.fillRect(0, 0, w, h);
-  for (const s of stars) { x.globalAlpha = RM ? .8 : .45 + .45 * Math.sin(time / 900 + s.p); x.fillStyle = "#fff4c2"; x.beginPath(); x.arc(s.x, s.y, s.r, 0, 7); x.fill(); }
+  for (const s of skyStars) { x.globalAlpha = RM ? .8 : .45 + .45 * Math.sin(time / 900 + s.p); x.fillStyle = "#fff4c2"; x.beginPath(); x.arc(s.x, s.y, s.r, 0, 7); x.fill(); }
   x.globalAlpha = 1;
 }
 (function skyLoop(time) { drawSky(time || 0); if (!RM) requestAnimationFrame(skyLoop); })();
-window.addEventListener("resize", () => { stars = []; if (RM) drawSky(0); });
+window.addEventListener("resize", () => { skyStars = []; if (RM) drawSky(0); });
 
-/* ---------------- app shell ---------------- */
-const stage = document.getElementById("stage"), back = document.getElementById("back"), titleEl = document.getElementById("title"), langBtn = document.getElementById("lang");
-let screen = "home", cleanup = null;
-function setLang(l) { lang = l; store.set("lang", l); document.documentElement.lang = l; document.documentElement.dir = l === "ar" ? "rtl" : "ltr"; go(screen); }
+/* ================= shell ================= */
+const stage = document.getElementById("stage"), backBtn = document.getElementById("back"), titleEl = document.getElementById("title"), langBtn = document.getElementById("lang");
+let screen = { name: "home" }, cleanup = [];
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function button(cls, text, onClick) { const b = el("button", cls, text); b.type = "button"; b.onclick = onClick; return b; }
+function onCleanup(f) { cleanup.push(f); }
+function setLang(l) { lang = l; store.set("lang", l); document.documentElement.lang = l; document.documentElement.dir = l === "ar" ? "rtl" : "ltr"; go(screen.name, screen.arg); }
 langBtn.onclick = () => setLang(lang === "ar" ? "en" : "ar");
-back.onclick = () => go("home");
-function go(s) {
-  if (cleanup) { cleanup(); cleanup = null; }
+backBtn.onclick = () => go(screen.parent || "home");
+function go(name, arg) {
+  cleanup.forEach(f => { try { f(); } catch (e) {} }); cleanup = [];
   try { speechSynthesis.cancel(); } catch (e) {}
-  screen = s;
-  // Remember the screen in the address when the page allows it (some embeddings refuse address changes).
-  try { if (location.hash.slice(1) !== s) history.replaceState(null, "", s === "home" ? location.pathname + location.search : "#" + s); } catch (e) {}
-  stage.innerHTML = ""; back.hidden = s === "home"; back.setAttribute("aria-label", t("back"));
+  const parents = { level: "map", freegame: "free", explore: "free" };
+  screen = { name, arg, parent: parents[name] || "home" };
+  try { const hsh = name === "home" ? "" : name === "level" ? "level-" + (arg + 1) : name === "freegame" ? "" : name; if (location.hash.slice(1) !== hsh) history.replaceState(null, "", hsh ? "#" + hsh : location.pathname + location.search); } catch (e) {}
+  stage.innerHTML = ""; backBtn.hidden = name === "home"; backBtn.setAttribute("aria-label", t("back"));
   langBtn.textContent = t("langBtn"); langBtn.setAttribute("aria-label", t("langName"));
-  titleEl.textContent = s === "home" ? t("title") : t(s === "explore" ? "explore" : s);
-  ({ home, explore, build, catch: catcher, launch, stickers })[s]();
+  ({ home, map, free, book, stickers, level: playLevel, freegame: playFree, explore })[name](arg);
 }
-function award(id) {
-  if (got.has(id)) return false;
-  got.add(id); store.set("stickers", [...got]); return true;
+function helper(text, speak) {
+  const h = el("div", "helper"); const cv = el("canvas"); h.appendChild(cv);
+  const b = el("div", "bubble", text); h.appendChild(b);
+  let raf = 0, t0 = performance.now();
+  (function loop(now) { const f = fit(cv); f.x.clearRect(0, 0, f.w, f.h); const bob = RM ? 0 : Math.sin((now - t0) / 500) * 2; nova(f.x, f.w / 2, f.h / 2 + bob, Math.min(f.w, f.h) * .38, !RM && (now % 3200) < 140); raf = requestAnimationFrame(loop); })(t0);
+  onCleanup(() => cancelAnimationFrame(raf));
+  h.onclick = () => say(b.textContent);
+  if (speak !== false) setTimeout(() => say(text), 250);
+  return { el: h, set(txt, sp) { b.textContent = txt; if (sp !== false) say(txt); } };
 }
 function toast(text, iconId, ms) {
-  const el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status");
-  if (iconId) el.appendChild(iconCanvas(iconId, 56));
-  const span = document.createElement("span"); span.textContent = text; el.appendChild(span);
-  stage.appendChild(el); setTimeout(() => el.remove(), ms || 2200);
+  const e = el("div", "toast"); e.setAttribute("role", "status");
+  if (iconId) e.appendChild(iconCanvas(iconId, 54));
+  e.appendChild(el("span", null, text)); stage.appendChild(e); setTimeout(() => e.remove(), ms || 2000);
 }
-function celebrate(text, iconId) {
-  sfx.yay(); const fresh = award(iconId);
-  say(text + (fresh ? " " + t("newSticker") : ""));
-  toast(fresh ? t("newSticker") : text, iconId, 2600);
+function nextFact() {
+  const all = []; BOOK.forEach(id => BODIES[id][lang][1].forEach(f => all.push([id, f]))); Object.keys(CONST).forEach(id => all.push([id, CONST[id][lang][1]]));
+  const f = all[factSeen % all.length]; factSeen++; store.set("factSeen", factSeen); return f;
 }
-function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
-/* ---------------- home ---------------- */
+/* ================= home ================= */
 function home() {
+  titleEl.textContent = t("title");
   const s = el("section", "screen");
-  const hint = el("p", "hint", t("homeHint")); s.appendChild(hint);
-  const tiles = el("div", "tiles");
-  [["explore", "t1", "saturn"], ["build", "t2", "station"], ["catch", "t3", "catcher"], ["launch", "t4", "landing"]].forEach(([k, cls, ic]) => {
-    const b = el("button", "tile " + cls); b.type = "button";
-    b.appendChild(iconCanvas(ic, 140)); b.appendChild(el("span", null, t(k)));
-    b.onclick = () => { sfx.pop(); say(t(k)); go(k); };
-    tiles.appendChild(b);
+  s.appendChild(helper(t("homeHint")).el);
+  const sc = el("div", "scroll"); const tiles = el("div", "tiles");
+  const done = Object.keys(prog).length;
+  const hero = button("tile hero", null, () => { sfx.pop(); go("map"); });
+  hero.appendChild(iconCanvas("jupiterflyby", 92)); const hl = el("span"); hl.appendChild(el("div", null, t("journey"))); hl.appendChild(el("small", null, num(done) + " / " + num(LEVELS.length) + " · " + num(totalStars()) + " ★")); hero.appendChild(hl);
+  tiles.appendChild(hero);
+  [["free", "c2", "saturn"], ["book", "c5", "galaxy"], ["stickers", "c3", "catcher"]].forEach(([k, c, ic]) => {
+    const b = button("tile " + c, null, () => { sfx.pop(); say(t(k)); go(k); }); b.appendChild(iconCanvas(ic, 96)); b.appendChild(el("span", null, t(k))); tiles.appendChild(b);
   });
-  s.appendChild(tiles);
-  const row = el("div", "row"); const sb = el("button", "big alt"); sb.type = "button";
-  sb.appendChild(iconCanvas("catcher", 30)); sb.appendChild(el("span", null, t("stickers") + "  " + num(got.size) + " / " + num(STICKERS.length)));
-  sb.onclick = () => { sfx.pop(); say(t("stickers")); go("stickers"); }; row.appendChild(sb); s.appendChild(row);
-  stage.appendChild(s);
-  setTimeout(() => say(t("homeHint")), 300);
+  const rk = button("tile c4", null, () => say(t("rank" + rankOf(totalStars())))); rk.appendChild(iconCanvas("landing", 96)); rk.appendChild(el("span", null, t("rank" + rankOf(totalStars())))); tiles.appendChild(rk);
+  sc.appendChild(tiles); s.appendChild(sc); stage.appendChild(s);
 }
 
-/* ---------------- 1. explore the planets ---------------- */
-function explore() {
-  const s = el("section", "screen"); s.appendChild(el("p", "hint", t("exploreHint")));
-  const row = el("div", "planets");
-  BODIES.forEach(b => {
-    const btn = el("button", "pbtn"); btn.type = "button";
-    const cv = el("canvas"); btn.appendChild(cv); btn.appendChild(el("span", null, b[lang][0]));
-    if (got.has(b.id)) { const g = iconCanvas("catcher", 34); g.className = "got"; btn.appendChild(g); }
-    btn.onclick = () => visit(b);
-    row.appendChild(btn);
-    requestAnimationFrame(() => { const { x, w, h } = fit(cv); planet(x, w / 2, h / 2, Math.min(w, h) * (b.id === "saturn" ? .26 : b.id === "sun" ? .3 : .34), b.id, 0); });
+/* ================= journey map ================= */
+function map() {
+  titleEl.textContent = t("journey");
+  const s = el("section", "screen"); s.appendChild(helper(t("mapHint")).el);
+  const sc = el("div", "scroll"); const m = el("div", "map");
+  const rank = el("div", "rank"); rank.appendChild(starCanvas(28, true)); rank.appendChild(el("span", null, num(totalStars()) + " / " + num(LEVELS.length * 3) + " · " + t("rank" + rankOf(totalStars())))); m.appendChild(rank);
+  let firstOpen = LEVELS.findIndex((_, i) => !prog[i] && unlocked(i));
+  const tints = ["#1d2a5e", "#4a1f24", "#4a3218", "#3b3416"];
+  WORLDS.forEach(([wk, ic, a, b], wi) => {
+    const wd = el("div", "world"); wd.style.background = tints[wi];
+    const h2 = el("h2"); h2.appendChild(iconCanvas(ic, 44)); h2.appendChild(el("span", null, t(wk))); wd.appendChild(h2);
+    const g = el("div", "lvls");
+    for (let i = a; i < b; i++) {
+      const open = unlocked(i), lv = button("lvl" + (i === firstOpen ? " next" : ""), null, () => { if (!open) return; sfx.pop(); go("level", i); });
+      lv.disabled = !open; lv.setAttribute("aria-label", t("level") + " " + (i + 1));
+      lv.appendChild(el("span", null, num(i + 1)));
+      const st = el("div", "st"); for (let k = 0; k < 3; k++) st.appendChild(starCanvas(20, (prog[i] || 0) > k)); lv.appendChild(st);
+      lv.appendChild(el("small", null, gameName(LEVELS[i].g)));
+      g.appendChild(lv);
+    }
+    wd.appendChild(g); m.appendChild(wd);
   });
-  s.appendChild(row); stage.appendChild(s);
-  setTimeout(() => say(t("exploreHint")), 300);
-  let raf = 0;
-  function visit(b) {
-    sfx.whoosh(); say(b[lang][0]);
-    const v = el("div", "visit"); const cv = el("canvas"); const h2 = el("h2", null, b[lang][0]); const p = el("p", null, ""); const r = el("div", "row");
-    const again = el("button", "big", t("listen")); again.type = "button"; again.onclick = () => say(b[lang][1]);
-    const more = el("button", "big alt", t("planets")); more.type = "button"; more.onclick = () => { cancelAnimationFrame(raf); go("explore"); };
-    r.appendChild(again); r.appendChild(more); v.appendChild(cv); v.appendChild(h2); v.appendChild(p); v.appendChild(r); s.appendChild(v);
-    const t0 = performance.now(); let told = false;
-    (function loop(now) {
-      const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h);
-      const k = Math.min(1, (now - t0) / 1200), e = 1 - Math.pow(1 - k, 3);
-      const R = Math.min(w, h) * (b.id === "saturn" ? .26 : .34) * (.4 + .6 * e), px = w * .62, py = h * .5;
-      planet(x, px, py, R, b.id, now);
-      const rx = w * .08 + (px - R * 1.25 - w * .08) * e, ry = h * .9 - (h * .9 - py) * e;
-      rocket(x, rx, ry, Math.min(w, h) * .32, Math.PI / 2.4 * (1 - e) + Math.PI / 2 * e, k < 1);
-      if (k >= 1 && !told) { told = true; p.textContent = b[lang][1]; setTimeout(() => say(b[lang][1]), 500); if (award(b.id)) setTimeout(() => { sfx.yay(); toast(t("newSticker"), b.id, 2400); }, 2200); }
-      raf = requestAnimationFrame(loop);
-    })(t0);
-  }
-  cleanup = () => cancelAnimationFrame(raf);
+  sc.appendChild(m); s.appendChild(sc); stage.appendChild(s);
+  if (firstOpen >= 0) requestAnimationFrame(() => { const n = s.querySelector(".lvl.next"); if (n && n.scrollIntoView) n.scrollIntoView({ block: "center" }); });
+}
+function gameName(g) { return t({ catch: "gCatch", build: "gBuild", launch: "gLaunch", quiz: "gQuiz", count: "gCount", connect: "gConnect" }[g]); }
+
+/* ================= playing a level ================= */
+function playLevel(i) {
+  const cfg = LEVELS[i]; titleEl.textContent = t("level") + " " + num(i + 1);
+  const s = el("section", "screen"); stage.appendChild(s);
+  GAMES[cfg.g](s, cfg, starsWon => finishLevel(s, i, cfg, starsWon));
+}
+function finishLevel(s, i, cfg, starsWon) {
+  const beforeRank = rankOf(totalStars());
+  prog[i] = Math.max(prog[i] || 0, starsWon); store.set("progress", prog);
+  const afterRank = rankOf(totalStars());
+  setTimeout(() => {
+    sfx.yay();
+    const d = el("div", "done");
+    d.appendChild(el("h2", null, i === LEVELS.length - 1 ? t("allDone") : t("levelDone")));
+    const st = el("div", "stars"); for (let k = 0; k < 3; k++) st.appendChild(starCanvas(72, k < starsWon)); d.appendChild(st);
+    const [fid, ftext] = nextFact(); const f = el("div", "fact"); f.appendChild(el("b", null, t("didYouKnow"))); f.appendChild(el("span", null, ftext)); d.appendChild(f);
+    const r = el("div", "row");
+    if (i < LEVELS.length - 1) r.appendChild(button("big", t("next"), () => go("level", i + 1)));
+    r.appendChild(button("big alt", t("toMap"), () => go("map")));
+    d.appendChild(r); s.appendChild(d);
+    let line = t("levelDone") + " " + t("didYouKnow") + " " + ftext;
+    if (afterRank > beforeRank) { line = t("rankUp") + " " + t("rank" + afterRank) + ". " + line; setTimeout(() => toast(t("rankUp") + " " + t("rank" + afterRank), "landing", 2600), 600); }
+    say(line);
+    f.onclick = () => say(ftext);
+  }, 900);
+}
+function playFree(g) {
+  titleEl.textContent = gameName(g);
+  const s = el("section", "screen"); stage.appendChild(s);
+  GAMES[g](s, FREE[g], () => {
+    sfx.yay();
+    setTimeout(() => { const r = el("div", "row"); r.appendChild(button("big", t("again"), () => go("freegame", g))); s.appendChild(r); }, 1200);
+  });
 }
 
-/* ---------------- 2. build a space station ---------------- */
-function build() {
-  const s = el("section", "screen"); s.appendChild(el("p", "hint", t("buildHint")));
-  const play = el("div", "play"); const cv = el("canvas"); cv.setAttribute("aria-label", t("buildHint")); play.appendChild(cv); s.appendChild(play);
-  const row = el("div", "row"); const again = el("button", "big", t("again")); again.type = "button"; again.hidden = true; row.appendChild(again); s.appendChild(row);
-  stage.appendChild(s); setTimeout(() => say(t("buildHint")), 300);
-  const SHAPES = [["circle", "#6ff0c4"], ["square", "#4c9bff"], ["triangle", "#ffc93c"], ["star", "#ff7ab8"]];
-  let pieces = [], slots = [], drag = null, done = false, raf = 0, glow = 0;
-  function shape(x, kind, cx, cy, r, fill, dashed) {
-    x.save(); x.beginPath();
-    if (kind === "circle") x.arc(cx, cy, r, 0, 7);
-    else if (kind === "square") x.rect(cx - r * .9, cy - r * .9, r * 1.8, r * 1.8);
-    else if (kind === "triangle") { x.moveTo(cx, cy - r); x.lineTo(cx + r, cy + r * .8); x.lineTo(cx - r, cy + r * .8); x.closePath(); }
-    else for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .48 : r * 1.05; x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
-    x.closePath();
-    if (dashed) { x.setLineDash([8, 7]); x.lineWidth = 4; x.strokeStyle = fill; x.globalAlpha = .9; x.stroke(); x.globalAlpha = .15; x.fillStyle = fill; x.fill(); }
-    else { x.fillStyle = fill; x.fill(); x.lineWidth = 4; x.strokeStyle = "#fff4c2"; x.stroke(); }
-    x.restore();
-  }
-  function setup() {
-    const w = cv.clientWidth, h = cv.clientHeight, cx = w / 2, cy = h * .4, d = Math.min(w, h * .8) * .3, r = Math.max(30, Math.min(w, h) * .085);
-    const spots = [[0, -1], [1, 0], [0, 1], [-1, 0]].sort(() => Math.random() - .5);
-    slots = SHAPES.map(([k, c], i) => ({ k, c, x: cx + spots[i][0] * d, y: cy + spots[i][1] * d * .85, r, filled: false }));
-    const order = SHAPES.map((_, i) => i).sort(() => Math.random() - .5);
-    pieces = order.map((i, j) => ({ k: SHAPES[i][0], c: SHAPES[i][1], slot: i, x: w * (j + 1) / 5, y: h - r * 1.5, hx: w * (j + 1) / 5, hy: h - r * 1.5, r, placed: false }));
-    done = false; again.hidden = true;
-  }
-  function draw(now) {
-    const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h);
-    const cx = w / 2, cy = h * .4, core = Math.max(26, Math.min(w, h) * .09);
-    x.strokeStyle = "#c9cfee"; x.lineWidth = 8; slots.forEach(sl => { x.beginPath(); x.moveTo(cx, cy); x.lineTo(sl.x, sl.y); x.stroke(); });
-    x.fillStyle = "#d9def5"; x.beginPath(); x.arc(cx, cy, core, 0, 7); x.fill();
-    x.fillStyle = done ? (Math.sin(now / 150) > 0 ? "#ffd23f" : "#6ff0c4") : "#8a93c9"; x.beginPath(); x.arc(cx, cy, core * .45, 0, 7); x.fill();
-    slots.forEach(sl => { if (!sl.filled) shape(x, sl.k, sl.x, sl.y, sl.r, sl.c, true); });
-    pieces.forEach(p => { if (p !== drag) shape(x, p.k, p.x, p.y, p.r, p.c, false); });
-    if (drag) shape(x, drag.k, drag.x, drag.y, drag.r * 1.12, drag.c, false);
-    if (done) for (let i = 0; i < 8; i++) { const a = now / 600 + i * Math.PI / 4, rr = core * 2.4 + Math.sin(now / 200 + i) * 6; star(x, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 9, i % 2 ? "#ffd23f" : "#ff7ab8"); }
-    raf = requestAnimationFrame(draw);
-  }
-  const pos = e => { const b = cv.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
-  cv.addEventListener("pointerdown", e => { const p = pos(e); const hit = pieces.filter(q => !q.placed).reverse().find(q => Math.hypot(q.x - p.x, q.y - p.y) < q.r * 1.4); if (hit) { drag = hit; cv.setPointerCapture(e.pointerId); sfx.pop(); } });
-  cv.addEventListener("pointermove", e => { if (!drag) return; const p = pos(e); drag.x = p.x; drag.y = p.y; });
-  const up = () => {
-    if (!drag) return; const sl = slots[drag.slot], p = drag; drag = null;
-    if (Math.hypot(p.x - sl.x, p.y - sl.y) < Math.max(56, sl.r * 1.6)) {
-      p.x = sl.x; p.y = sl.y; p.placed = true; sl.filled = true; sfx.ding();
-      if (pieces.every(q => q.placed)) { done = true; celebrate(t("buildDone"), "station"); again.hidden = false; }
-    } else { p.x = p.hx; p.y = p.hy; sfx.bonk(); }
-  };
-  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
-  again.onclick = () => { sfx.pop(); setup(); };
-  requestAnimationFrame(() => { fit(cv); setup(); raf = requestAnimationFrame(draw); });
-  const onResize = () => { fit(cv); setup(); }; window.addEventListener("resize", onResize);
-  cleanup = () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
+/* ================= free play menu ================= */
+function free() {
+  titleEl.textContent = t("free");
+  const s = el("section", "screen"); s.appendChild(helper(t("homeHint"), false).el);
+  const sc = el("div", "scroll"); const tiles = el("div", "tiles");
+  [["explore", "c1", "saturn", "gExplore"], ["catch", "c3", "catcher", "gCatch"], ["build", "c2", "station", "gBuild"], ["launch", "c4", "landing", "gLaunch"], ["quiz", "c5", "mars", "gQuiz"], ["count", "c6", "sun", "gCount"], ["connect", "c7", "dipper", "gConnect"]].forEach(([k, c, ic, label]) => {
+    const b = button("tile " + c, null, () => { sfx.pop(); say(t(label)); k === "explore" ? go("explore") : go("freegame", k); });
+    b.appendChild(iconCanvas(ic, 92)); b.appendChild(el("span", null, t(label))); tiles.appendChild(b);
+  });
+  sc.appendChild(tiles); s.appendChild(sc); stage.appendChild(s);
 }
 
-/* ---------------- 3. catch the stars ---------------- */
-function catcher() {
-  const s = el("section", "screen"); s.appendChild(el("p", "hint", t("catchHint")));
-  const play = el("div", "play"); const cv = el("canvas"); cv.setAttribute("aria-label", t("catchHint")); play.appendChild(cv);
-  const badge = el("div", "badge"); badge.appendChild(iconCanvas("catcher", 34)); const count = el("span", null, num(0)); badge.appendChild(count); play.appendChild(badge);
-  s.appendChild(play); stage.appendChild(s); setTimeout(() => say(t("catchHint")), 300);
-  let w = 0, h = 0, rx = 0, target = 0, items = [], sparks = [], score = 0, last = performance.now(), nextStar = 0, nextRock = 2500, wobble = 0, raf = 0, celebrated = false;
-  cv.addEventListener("pointerdown", e => { const b = cv.getBoundingClientRect(); target = e.clientX - b.left; });
-  cv.addEventListener("pointermove", e => { const b = cv.getBoundingClientRect(); target = e.clientX - b.left; });
+/* ================= games ================= */
+const GAMES = {};
+
+/* ---- catch the stars ---- */
+GAMES.catch = function (s, cfg, done) {
+  const help = helper(t("catchHint")(num(cfg.goal))); s.appendChild(help.el);
+  const play = el("div", "play"); const cv = el("canvas", "main"); play.appendChild(cv);
+  const badge = el("div", "badge"); badge.appendChild(iconCanvas("catcher", 32)); const count = el("span", null, num(0) + " / " + num(cfg.goal)); badge.appendChild(count); play.appendChild(badge);
+  s.appendChild(play);
+  let rx = 0, target = 0, items = [], sparks = [], score = 0, hits = 0, last = performance.now(), nextStar = 300, nextRock = 2200, wobble = 0, frozen = 0, raf = 0, finished = false;
+  const aim = e => { const b = cv.getBoundingClientRect(); target = e.clientX - b.left; };
+  cv.addEventListener("pointerdown", aim); cv.addEventListener("pointermove", aim);
   function loop(now) {
-    const f = fit(cv), x = f.x; w = f.w; h = f.h; const dt = Math.min(50, now - last); last = now;
-    if (!rx) { rx = target = w / 2; }
-    rx += (target - rx) * Math.min(1, dt / 90);
-    const ry = h - Math.max(70, h * .14), size = Math.max(70, Math.min(w, h) * .16);
-    nextStar -= dt; nextRock -= dt;
-    if (nextStar <= 0) { items.push({ t: "s", x: 30 + Math.random() * (w - 60), y: -20, v: (h / 3200) * (.8 + Math.random() * .5), r: Math.max(16, w * .035) }); nextStar = 700 + Math.random() * 500; }
-    if (nextRock <= 0) { items.push({ t: "r", x: 30 + Math.random() * (w - 60), y: -30, v: (h / 4200) * (.8 + Math.random() * .4), r: Math.max(18, w * .04), a: 0 }); nextRock = 2600 + Math.random() * 1800; }
+    const { x, w, h } = fit(cv), dt = Math.min(50, now - last); last = now;
+    if (!rx) rx = target = w / 2;
+    if (frozen <= 0) rx += (target - rx) * Math.min(1, dt / 90); frozen -= dt;
+    const ry = h - Math.max(70, h * .14), size = Math.max(70, Math.min(w, h) * .16), sp = cfg.speed;
+    if (!finished) {
+      nextStar -= dt; nextRock -= dt;
+      if (nextStar <= 0) { items.push({ t: "s", x: 30 + Math.random() * (w - 60), y: -20, v: (h / 3300) * sp * (.85 + Math.random() * .4), r: Math.max(16, w * .035) }); nextStar = (800 + Math.random() * 500) / Math.max(.7, sp); }
+      if (cfg.rocks && nextRock <= 0) { items.push({ t: "r", x: 30 + Math.random() * (w - 60), y: -30, v: (h / 4000) * sp * (.8 + Math.random() * .5), r: Math.max(18, w * .042), a: 0 }); nextRock = (2600 + Math.random() * 1600) / cfg.rocks; }
+    }
     x.clearRect(0, 0, w, h);
     items.forEach(it => { it.y += it.v * dt; if (it.t === "r") it.a += dt / 600; });
     items = items.filter(it => {
       if (it.y - it.r > h) return false;
       const hit = Math.abs(it.x - rx) < size * .4 + it.r * .6 && Math.abs(it.y - ry) < size * .5 + it.r * .6;
       if (!hit) return true;
-      if (it.t === "s") { score++; count.textContent = num(score); sfx.ding(); for (let i = 0; i < 10; i++) sparks.push({ x: it.x, y: it.y, vx: (Math.random() - .5) * .5, vy: (Math.random() - .8) * .5, life: 600 }); if (score === 20 && !celebrated) { celebrated = true; celebrate(t("catchDone"), "catcher"); } }
-      else { wobble = 500; sfx.bonk(); }
+      if (it.t === "s") { if (finished) return false; score++; count.textContent = num(score) + " / " + num(cfg.goal); sfx.ding(); for (let i = 0; i < 10; i++) sparks.push({ x: it.x, y: it.y, vx: (Math.random() - .5) * .5, vy: (Math.random() - .8) * .5, life: 600 }); if (score >= cfg.goal) { finished = true; award("catcher"); done(hits === 0 ? 3 : hits <= 2 ? 2 : 1); } }
+      else { hits++; wobble = 500; sfx.bonk(); if (cfg.bump) frozen = 700; if (hits === 1) help.set(t("catchBump")); }
       return false;
     });
     items.forEach(it => { if (it.t === "s") star(x, it.x, it.y, it.r); else { x.save(); x.translate(it.x, it.y); x.rotate(it.a); x.fillStyle = "#8c7f74"; x.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = it.r * (i % 2 ? .8 : 1); x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } x.closePath(); x.fill(); x.fillStyle = "#6b6058"; x.beginPath(); x.arc(-it.r * .25, -it.r * .2, it.r * .22, 0, 7); x.fill(); x.restore(); } });
@@ -426,78 +537,267 @@ function catcher() {
     rocket(x, rx, ry, size, (target - rx) / 900 + (wobble ? Math.sin(now / 40) * .25 : 0), true);
     raf = requestAnimationFrame(loop);
   }
-  raf = requestAnimationFrame(loop);
-  cleanup = () => cancelAnimationFrame(raf);
-}
+  raf = requestAnimationFrame(loop); onCleanup(() => cancelAnimationFrame(raf));
+};
 
-/* ---------------- 4. fly to the Moon ---------------- */
-function launch() {
-  const s = el("section", "screen"); s.appendChild(el("p", "hint", t("launchHint")));
-  const play = el("div", "play"); const cv = el("canvas"); cv.setAttribute("aria-label", t("launchHint")); play.appendChild(cv);
-  const btn = el("button", "hold", t("hold")); btn.type = "button"; play.appendChild(btn); s.appendChild(play);
-  const row = el("div", "row"); const again = el("button", "big", t("fly")); again.type = "button"; again.hidden = true; row.appendChild(again); s.appendChild(row);
-  stage.appendChild(s); setTimeout(() => say(t("launchHint")), 300);
-  const NEED = .75, FILL_MS = 2200;
-  let fuel = 0, shot = 0, filling = false, phase = "pad", y = 0, peak = 0, last = performance.now(), raf = 0, chute = false;
-  const start = e => { if (phase !== "pad") return; e.preventDefault(); filling = true; btn.classList.add("down"); audio(); };
-  const stop = () => { if (!filling) return; filling = false; btn.classList.remove("down"); if (fuel > .05) { shot = fuel; phase = "up"; btn.disabled = true; sfx.whoosh(); } };
+/* ---- build a station ---- */
+GAMES.build = function (s, cfg, done) {
+  s.appendChild(helper(t("buildHint")).el);
+  const play = el("div", "play"); const cv = el("canvas", "main"); play.appendChild(cv); s.appendChild(play);
+  const ALL = [["circle", "#6ff0c4"], ["square", "#4c9bff"], ["triangle", "#ffc93c"], ["star", "#ff7ab8"], ["heart", "#ff6b6b"], ["hexagon", "#b98cff"]];
+  const SH = ALL.slice(0, cfg.pieces);
+  let pieces = [], slots = [], drag = null, finished = false, raf = 0, misses = 0;
+  function shape(x, kind, cx, cy, r, fill, mode) {
+    x.save(); x.beginPath();
+    if (kind === "circle") x.arc(cx, cy, r, 0, 7);
+    else if (kind === "square") x.rect(cx - r * .88, cy - r * .88, r * 1.76, r * 1.76);
+    else if (kind === "triangle") { x.moveTo(cx, cy - r); x.lineTo(cx + r, cy + r * .8); x.lineTo(cx - r, cy + r * .8); x.closePath(); }
+    else if (kind === "heart") { x.moveTo(cx, cy + r * .85); x.bezierCurveTo(cx - r * 1.5, cy - r * .1, cx - r * .6, cy - r * 1.1, cx, cy - r * .35); x.bezierCurveTo(cx + r * .6, cy - r * 1.1, cx + r * 1.5, cy - r * .1, cx, cy + r * .85); }
+    else if (kind === "hexagon") for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; x.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+    else for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .48 : r * 1.05; x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+    x.closePath();
+    if (mode === "slot") { x.setLineDash([8, 7]); x.lineWidth = 4; x.strokeStyle = cfg.colored ? fill : "#fff4c2"; x.globalAlpha = .9; x.stroke(); x.globalAlpha = .14; x.fillStyle = cfg.colored ? fill : "#fff4c2"; x.fill(); }
+    else { x.fillStyle = fill; x.fill(); x.lineWidth = 4; x.strokeStyle = "#fff4c2"; x.stroke(); }
+    x.restore();
+  }
+  function setup() {
+    const w = cv.clientWidth, h = cv.clientHeight, cx = w / 2, cy = h * .38, n = SH.length;
+    const r = Math.max(26, Math.min(w, h) * (n > 4 ? .07 : .085)), d = Math.min(w * .36, h * .27);
+    const offs = shuffle(Array.from({ length: n }, (_, i) => -Math.PI / 2 + i * 2 * Math.PI / n));
+    slots = SH.map(([k, c], i) => ({ k, c, x: cx + Math.cos(offs[i]) * d, y: cy + Math.sin(offs[i]) * d * .9, r, filled: false }));
+    const order = shuffle(SH.map((_, i) => i)), rows = n > 4 ? 2 : 1, perRow = Math.ceil(n / rows);
+    pieces = order.map((si, j) => { const row = Math.floor(j / perRow), col = j % perRow, inRow = Math.min(perRow, n - row * perRow); const px = w * (col + 1) / (inRow + 1), py = h - r * 1.4 - row * r * 2.4; return { k: SH[si][0], c: SH[si][1], slot: si, x: px, y: py, hx: px, hy: py, r, placed: false }; });
+  }
+  function draw(now) {
+    const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h);
+    const cx = w / 2, cy = h * .38, core = Math.max(24, Math.min(w, h) * .08);
+    x.strokeStyle = "#c9cfee"; x.lineWidth = 7; slots.forEach(sl => { x.beginPath(); x.moveTo(cx, cy); x.lineTo(sl.x, sl.y); x.stroke(); });
+    x.fillStyle = "#d9def5"; x.beginPath(); x.arc(cx, cy, core, 0, 7); x.fill();
+    x.fillStyle = finished ? (Math.sin(now / 150) > 0 ? "#ffd23f" : "#6ff0c4") : "#8a93c9"; x.beginPath(); x.arc(cx, cy, core * .45, 0, 7); x.fill();
+    slots.forEach(sl => { if (!sl.filled) shape(x, sl.k, sl.x, sl.y, sl.r, sl.c, "slot"); });
+    pieces.forEach(p => { if (p !== drag) shape(x, p.k, p.x, p.y, p.r, p.c); });
+    if (drag) shape(x, drag.k, drag.x, drag.y, drag.r * 1.12, drag.c);
+    if (finished) for (let i = 0; i < 8; i++) { const a = now / 600 + i * Math.PI / 4, rr = core * 2.6 + Math.sin(now / 200 + i) * 6; star(x, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 9, i % 2 ? "#ffd23f" : "#ff7ab8"); }
+    raf = requestAnimationFrame(draw);
+  }
+  const pos = e => { const b = cv.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
+  cv.addEventListener("pointerdown", e => { if (finished) return; const p = pos(e); const hit = pieces.filter(q => !q.placed).reverse().find(q => Math.hypot(q.x - p.x, q.y - p.y) < q.r * 1.45); if (hit) { drag = hit; try { cv.setPointerCapture(e.pointerId); } catch (x) {} sfx.pop(); } });
+  cv.addEventListener("pointermove", e => { if (!drag) return; const p = pos(e); drag.x = p.x; drag.y = p.y; });
+  const up = () => {
+    if (!drag) return; const sl = slots[drag.slot], p = drag; drag = null;
+    if (Math.hypot(p.x - sl.x, p.y - sl.y) < sl.r * cfg.tol) {
+      p.x = sl.x; p.y = sl.y; p.placed = true; sl.filled = true; sfx.ding();
+      if (pieces.every(q => q.placed)) { finished = true; say(t("buildDone")); award("station"); done(misses === 0 ? 3 : misses <= 2 ? 2 : 1); }
+    } else { p.x = p.hx; p.y = p.hy; misses++; sfx.bonk(); }
+  };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+  requestAnimationFrame(() => { fit(cv); setup(); raf = requestAnimationFrame(draw); });
+  const onResize = () => { if (!finished) { fit(cv); setup(); } }; window.addEventListener("resize", onResize);
+  onCleanup(() => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); });
+};
+
+/* ---- launch the rocket ---- */
+GAMES.launch = function (s, cfg, done) {
+  const target = cfg.target, tname = name(target);
+  const help = helper(t("launchHint")(tname)); s.appendChild(help.el);
+  const play = el("div", "play"); const cv = el("canvas", "main"); play.appendChild(cv);
+  const btn = button("hold", t("hold")); play.appendChild(btn); s.appendChild(play);
+  const FILL = cfg.max < 1 ? 3000 : 2200;
+  let fuel = 0, shot = 0, filling = false, phase = "pad", y = 0, peak = 0, last = performance.now(), raf = 0, chute = false, tries = 0, over = false;
+  const start = e => { if (phase !== "pad") return; e.preventDefault(); fuel = 0; filling = true; btn.classList.add("down"); audio(); };
+  const stop = () => { if (!filling) return; filling = false; btn.classList.remove("down"); if (fuel > .05) { shot = fuel; tries++; phase = "up"; btn.disabled = true; sfx.whoosh(); over = shot > cfg.max; } };
   btn.addEventListener("pointerdown", start); btn.addEventListener("pointerup", stop); btn.addEventListener("pointerleave", stop); btn.addEventListener("pointercancel", stop);
   btn.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") start(e); }); btn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") stop(); });
-  again.onclick = () => { fuel = 0; shot = 0; phase = "pad"; y = 0; chute = false; btn.disabled = false; again.hidden = true; sfx.pop(); };
+  const good = () => shot >= cfg.min && shot <= cfg.max;
   function loop(now) {
     const { x, w, h } = fit(cv), dt = Math.min(50, now - last); last = now;
-    const ground = h - 70, moonY = Math.max(70, h * .14), moonR = Math.max(38, Math.min(w, h) * .11), size = Math.max(64, Math.min(w, h) * .15);
-    const climb = ground - moonY - moonR;
-    if (filling) fuel = Math.min(1, fuel + dt / FILL_MS);
+    const ground = h - 70, tY = Math.max(70, h * .14), tR = Math.max(36, Math.min(w, h) * (target === "jupiter" ? .14 : .11)), size = Math.max(62, Math.min(w, h) * .15);
+    const climb = ground - tY - tR;
+    if (filling) fuel = Math.min(1, fuel + dt / FILL);
     if (phase === "up") {
-      // The outcome is fixed by the fuel at the moment of release; the gauge only drains for show.
-      peak = shot >= NEED ? climb + 10 : climb * (shot / NEED) * .85;
-      y = Math.min(peak, y + dt * .45 * (.6 + shot)); fuel = Math.max(0, fuel - dt / 6000);
-      if (y >= peak - 1) { if (peak >= climb) { phase = "landed"; celebrate(t("landed"), "landing"); again.hidden = false; } else { phase = "down"; chute = true; say(t("low")); toast(t("low"), null, 2000); } }
-    } else if (phase === "down") { y = Math.max(0, y - dt * .12); if (y === 0) { phase = "pad"; fuel = 0; chute = false; btn.disabled = false; } }
+      peak = good() ? climb + 10 : over ? h + size : climb * (shot / cfg.min) * .85;
+      y = Math.min(peak, y + dt * .45 * (.6 + shot));
+      if (y >= peak - 1) {
+        if (good()) { phase = "landed"; const msg = target === "jupiter" ? t("flyby")(tname) : t("arrived")(tname); help.set(msg); award(target === "moon" ? "landing" : target === "mars" ? "marslanding" : "jupiterflyby"); done(tries === 1 ? 3 : tries === 2 ? 2 : 1); }
+        else { phase = "down"; chute = true; help.set(over ? t("high") : t("low")); y = over ? climb * .9 : y; }
+      }
+    } else if (phase === "down") { y = Math.max(0, y - dt * .14); if (y === 0) { phase = "pad"; fuel = 0; chute = false; btn.disabled = false; } }
     x.clearRect(0, 0, w, h);
-    planet(x, w * .72, moonY, moonR, "moon");
+    planet(x, w * .72, tY, tR, target);
     x.save(); x.beginPath(); x.arc(w / 2, ground + w * 1.2, w * 1.25, 0, 7); x.clip(); planet(x, w / 2, ground + w * 1.2, w * 1.25, "earth", now); x.restore();
-    const gx = 22, gh = Math.min(220, h * .5), gy = ground - gh - 20;
-    x.fillStyle = "rgba(255,244,194,.2)"; x.fillRect(gx, gy, 26, gh);
-    x.fillStyle = fuel >= NEED ? "#6ff0c4" : "#ffc93c"; x.fillRect(gx, gy + gh * (1 - fuel), 26, gh * fuel);
-    x.strokeStyle = "#fff4c2"; x.lineWidth = 3; x.strokeRect(gx, gy, 26, gh);
-    x.fillStyle = "#fff4c2"; x.fillRect(gx - 6, gy + gh * (1 - NEED) - 2, 38, 4);
-    star(x, gx + 13, gy + gh * (1 - NEED) - 16, 10, "#6ff0c4");
+    const gx = 18, gh = Math.min(230, h * .52), gy = ground - gh - 20;
+    x.fillStyle = "rgba(255,244,194,.18)"; x.fillRect(gx, gy, 28, gh);
+    x.fillStyle = "rgba(111,240,196,.45)"; x.fillRect(gx, gy + gh * (1 - cfg.max), 28, gh * (cfg.max - cfg.min));
+    const inZone = fuel >= cfg.min && fuel <= cfg.max;
+    x.fillStyle = inZone ? "#6ff0c4" : fuel > cfg.max ? "#ff6b6b" : "#ffc93c"; x.fillRect(gx + 5, gy + gh * (1 - fuel), 18, gh * fuel);
+    x.strokeStyle = "#fff4c2"; x.lineWidth = 3; x.strokeRect(gx, gy, 28, gh);
+    star(x, gx + 14, gy + gh * (1 - (cfg.min + cfg.max) / 2), 9, "#6ff0c4");
     let rxp = w / 2, ryp = ground - size * .45 - y;
-    if (phase === "landed") { rxp = w * .72; ryp = moonY - moonR - size * .42; x.fillStyle = "#fff"; x.fillRect(w * .72 + moonR * .55, moonY - moonR * 1.55, 3, moonR * .75); x.fillStyle = "#e8434f"; x.fillRect(w * .72 + moonR * .55 + 3, moonY - moonR * 1.55, moonR * .45, moonR * .3); }
-    else if (phase === "up" && shot >= NEED) rxp = w / 2 + (w * .72 - w / 2) * Math.max(0, (y - climb * .6) / (climb * .4));
+    if (phase === "landed") {
+      if (target === "jupiter") { rxp = w * .72 - tR * 1.6; ryp = tY + tR * .2; }
+      else { rxp = w * .72; ryp = tY - tR - size * .42; x.fillStyle = "#fff"; x.fillRect(w * .72 + tR * .55, tY - tR * 1.55, 3, tR * .75); x.fillStyle = "#e8434f"; x.fillRect(w * .72 + tR * .55 + 3, tY - tR * 1.55, tR * .45, tR * .3); }
+    } else if (phase === "up" && good()) rxp = w / 2 + (w * .72 - w / 2) * Math.max(0, (y - climb * .6) / (climb * .4)) * (target === "jupiter" ? .6 : 1);
     if (chute) { x.fillStyle = "#ff7ab8"; x.beginPath(); x.arc(rxp, ryp - size * .9, size * .55, Math.PI, 2 * Math.PI); x.fill(); x.strokeStyle = "#fff4c2"; x.lineWidth = 2; x.beginPath(); x.moveTo(rxp - size * .55, ryp - size * .9); x.lineTo(rxp - size * .1, ryp - size * .45); x.moveTo(rxp + size * .55, ryp - size * .9); x.lineTo(rxp + size * .1, ryp - size * .45); x.stroke(); }
-    rocket(x, rxp, ryp, size, 0, phase === "up" || filling);
+    rocket(x, rxp, ryp, size, phase === "landed" && target === "jupiter" ? .9 : 0, phase === "up" || filling);
     raf = requestAnimationFrame(loop);
   }
-  raf = requestAnimationFrame(loop);
-  cleanup = () => cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(loop); onCleanup(() => cancelAnimationFrame(raf));
+};
+
+/* ---- planet quiz ---- */
+GAMES.quiz = function (s, cfg, done) {
+  const help = helper("", false); s.appendChild(help.el);
+  const play = el("div", "play"); const cv = el("canvas", "main"); play.appendChild(cv); s.appendChild(play);
+  const grid = el("div", "choices"); play.appendChild(grid);
+  const qs = shuffle(cfg.qs).slice(0, cfg.rounds); let round = 0, mistakes = 0, raf = 0, show = null;
+  function ask() {
+    const q = QS[qs[round]], opts = shuffle([q.a].concat(shuffle(q.from.filter(o => o !== q.a)).slice(0, cfg.n - 1)));
+    const text = q.find ? (lang === "ar" ? "أين " + name(q.a) + "؟" : "Where is " + name(q.a) + "?") : q[lang];
+    help.set(text); grid.innerHTML = ""; grid.style.gridTemplateColumns = "repeat(" + Math.min(cfg.n, 4) + ", 1fr)"; show = null;
+    let wrong = false;
+    opts.forEach(id => {
+      const b = button("choice", null, () => {
+        if (b.classList.contains("no") || grid.dataset.lock) return;
+        if (id === q.a) {
+          grid.dataset.lock = "1"; b.classList.add("ok"); sfx.ding(); show = id;
+          const fact = facts(id)[0]; help.set(pick(t("right")) + " " + name(id) + ". " + fact);
+          if (!wrong) award(id);
+          setTimeout(() => { delete grid.dataset.lock; round++; if (round < qs.length) ask(); else { grid.innerHTML = ""; done(mistakes === 0 ? 3 : mistakes <= 2 ? 2 : 1); } }, 3600);
+        } else { b.classList.add("no"); wrong = true; mistakes++; sfx.bonk(); say(t("tryAgain")); }
+      });
+      b.appendChild(iconCanvas(id, 84)); if (!q.find || cfg.n <= 2) b.appendChild(el("span", null, name(id)));
+      grid.appendChild(b);
+    });
+  }
+  (function loop(now) { const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h); if (show) planet(x, w / 2, h * .3, Math.min(w, h) * (show === "saturn" ? .14 : .18), show, now); else for (let i = 0; i < 5; i++) star(x, w * (.2 + i * .15), h * (.22 + Math.sin(now / 500 + i) * .04), 10 + i % 2 * 4, i % 2 ? "#ffd23f" : "#ff7ab8"); raf = requestAnimationFrame(loop); })(performance.now());
+  onCleanup(() => cancelAnimationFrame(raf));
+  ask();
+};
+
+/* ---- count the stars ---- */
+GAMES.count = function (s, cfg, done) {
+  const help = helper(t("countHint")); s.appendChild(help.el);
+  const play = el("div", "play"); const cv = el("canvas", "main"); play.appendChild(cv); s.appendChild(play);
+  const grid = el("div", "choices"); play.appendChild(grid);
+  let pts = [], counted = 0, raf = 0, mistakes = 0, asking = false;
+  const COLORS = ["#ffd23f", "#ff7ab8", "#6ff0c4", "#8fd6ff"];
+  function setup() {
+    const w = cv.clientWidth, h = cv.clientHeight * .62, r = Math.max(22, Math.min(w, h) * .085);
+    pts = []; let guard = 0;
+    while (pts.length < cfg.n && guard++ < 2000) { const p = { x: r * 1.4 + Math.random() * (w - r * 2.8), y: r * 1.4 + Math.random() * (h - r * 2.4), r, on: 0, c: pick(COLORS) }; if (pts.every(q => Math.hypot(q.x - p.x, q.y - p.y) > r * 2.6)) pts.push(p); }
+  }
+  function draw(now) {
+    const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h);
+    pts.forEach((p, i) => { const k = p.on ? 1 + .15 * Math.max(0, 1 - (now - p.on) / 300) : 1; star(x, p.x, p.y, p.r * k, p.on ? p.c : "rgba(170,179,232,.35)", p.on ? "#fff6c8" : "rgba(255,244,194,.7)"); if (p.on) { x.fillStyle = "#2b1a00"; x.font = "800 " + Math.round(p.r * .8) + "px " + getComputedStyle(document.body).fontFamily; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(num(p.n), p.x, p.y + 2); } });
+    raf = requestAnimationFrame(draw);
+  }
+  cv.addEventListener("pointerdown", e => {
+    if (asking) return; const b = cv.getBoundingClientRect(), px = e.clientX - b.left, py = e.clientY - b.top;
+    const p = pts.find(q => !q.on && Math.hypot(q.x - px, q.y - py) < q.r * 1.3); if (!p) return;
+    counted++; p.on = performance.now(); p.n = counted; sfx.tick(counted); say(t("numbers")[counted] || num(counted));
+    if (counted === cfg.n) setTimeout(askHowMany, 900);
+  });
+  function askHowMany() {
+    asking = true; help.set(t("howMany"));
+    const opts = new Set([cfg.n]); while (opts.size < cfg.choices) { const d = cfg.n + pick([-3, -2, -1, 1, 2, 3]); if (d > 0) opts.add(d); }
+    grid.style.gridTemplateColumns = "repeat(" + cfg.choices + ", 1fr)";
+    shuffle([...opts]).forEach(v => { const b = button("choice num", num(v), () => { if (b.classList.contains("no")) return; if (v === cfg.n) { b.classList.add("ok"); sfx.ding(); help.set(pick(t("right")) + " " + (t("numbers")[v] || num(v)) + "!"); grid.querySelectorAll("button").forEach(x => x.disabled = true); setTimeout(() => done(mistakes === 0 ? 3 : mistakes === 1 ? 2 : 1), 1400); } else { b.classList.add("no"); mistakes++; sfx.bonk(); say(t("tryAgain")); } }); grid.appendChild(b); });
+  }
+  requestAnimationFrame(() => { fit(cv); setup(); raf = requestAnimationFrame(draw); });
+  onCleanup(() => cancelAnimationFrame(raf));
+};
+
+/* ---- connect the stars (constellations) ---- */
+GAMES.connect = function (s, cfg, done) {
+  const id = cfg.c === "random" ? pick(Object.keys(CONST)) : cfg.c, C = CONST[id];
+  const help = helper(t("connectHint")); s.appendChild(help.el);
+  const play = el("div", "play"); const cv = el("canvas", "main"); play.appendChild(cv); s.appendChild(play);
+  let next = 0, mistakes = 0, raf = 0, finished = false, flash = -1, flashT = 0, pts = [];
+  function layout(w, h) { const m = Math.max(40, Math.min(w, h) * .1); return C.p.map(([a, b]) => ({ x: m + a * (w - m * 2), y: m + b * (h - m * 2) })); }
+  function draw(now) {
+    const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h); pts = layout(w, h);
+    const r = Math.max(20, Math.min(w, h) * .055);
+    x.lineWidth = 5; x.lineCap = "round"; x.strokeStyle = "#8fd6ff";
+    C.e.forEach(([a, b]) => { if (a < next && b < next) { x.beginPath(); x.moveTo(pts[a].x, pts[a].y); x.lineTo(pts[b].x, pts[b].y); x.stroke(); } });
+    pts.forEach((p, i) => {
+      const lit = i < next, isNext = i === next && !finished, pulse = isNext && !RM ? 1 + .12 * Math.sin(now / 200) : 1;
+      star(x, p.x, p.y, r * pulse, lit ? "#ffd23f" : isNext ? "#ff7ab8" : "rgba(170,179,232,.4)", flash === i && now - flashT < 400 ? "#ff6b6b" : "#fff6c8");
+      x.fillStyle = lit || isNext ? "#2b1a00" : "#fff4c2"; x.font = "800 " + Math.round(r * .8) + "px " + getComputedStyle(document.body).fontFamily; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(num(i + 1), p.x, p.y + 2);
+    });
+    raf = requestAnimationFrame(draw);
+  }
+  cv.addEventListener("pointerdown", e => {
+    if (finished) return; const b = cv.getBoundingClientRect(), px = e.clientX - b.left, py = e.clientY - b.top, r = Math.max(20, Math.min(b.width, b.height) * .055);
+    const i = pts.findIndex(p => Math.hypot(p.x - px, p.y - py) < r * 1.6); if (i < 0) return;
+    if (i === next) { next++; sfx.tick(next); say(t("numbers")[next] || num(next)); if (next === C.p.length) { finished = true; award(id); setTimeout(() => { help.set(t("connectDone")(C[lang][0]) + " " + C[lang][1]); }, 500); setTimeout(() => done(mistakes === 0 ? 3 : mistakes <= 2 ? 2 : 1), 4200); } }
+    else if (i > next) { mistakes++; flash = i; flashT = performance.now(); sfx.bonk(); }
+  });
+  raf = requestAnimationFrame(draw); onCleanup(() => cancelAnimationFrame(raf));
+  setTimeout(() => say(CONST_INTRO[lang] + " " + t("connectHint")), 300);
+};
+
+/* ================= explore (free play) ================= */
+function explore() {
+  titleEl.textContent = t("gExplore");
+  const s = el("section", "screen"); s.appendChild(helper(t("exploreHint")).el);
+  const row = el("div", "scroll"); const g = el("div", "grid");
+  ORDER.forEach(id => { const c = button("card", null, () => visit(s, id, true)); c.appendChild(iconCanvas(id, 76)); c.appendChild(el("span", null, name(id))); g.appendChild(c); });
+  row.appendChild(g); s.appendChild(row); stage.appendChild(s);
+}
+function visit(s, id, fly) {
+  sfx.whoosh(); say(name(id));
+  const v = el("div", "detail"); const cv = el("canvas"); const h2 = el("h2", null, name(id)); const p = el("p", null, ""); const dots = el("div", "dots"); const r = el("div", "row");
+  const list = facts(id); let fi = 0;
+  list.forEach(() => dots.appendChild(el("i")));
+  const showFact = () => { p.textContent = list[fi]; [...dots.children].forEach((d, i) => d.classList.toggle("on", i === fi)); say(list[fi]); };
+  r.appendChild(button("big", t("more"), () => { fi = (fi + 1) % list.length; showFact(); sfx.pop(); }));
+  r.appendChild(button("big alt", t("back"), () => { cancelAnimationFrame(raf); v.remove(); }));
+  v.appendChild(cv); v.appendChild(h2); v.appendChild(p); v.appendChild(dots); v.appendChild(r); s.appendChild(v);
+  const t0 = performance.now(); let told = false, raf = 0;
+  (function loop(now) {
+    const { x, w, h } = fit(cv); x.clearRect(0, 0, w, h);
+    const k = fly ? Math.min(1, (now - t0) / 1200) : 1, e = 1 - Math.pow(1 - k, 3);
+    const R = Math.min(w, h) * (id === "saturn" ? .26 : .34) * (.4 + .6 * e), px = w * .6, py = h * .5;
+    if (LOOK[id]) planet(x, px, py, R, id, now); else iconFor(x, w, h, id, now);
+    if (fly && LOOK[id]) rocket(x, w * .08 + (px - R * 1.25 - w * .08) * e, h * .9 - (h * .9 - py) * e, Math.min(w, h) * .3, Math.PI / 2.4 * (1 - e) + Math.PI / 2 * e, k < 1);
+    if (k >= 1 && !told) { told = true; setTimeout(showFact, 400); if (award(id)) setTimeout(() => { sfx.yay(); toast(t("newSticker"), id, 2200); }, 2600); }
+    raf = requestAnimationFrame(loop);
+  })(t0);
+  onCleanup(() => cancelAnimationFrame(raf));
 }
 
-/* ---------------- sticker book ---------------- */
+/* ================= space book ================= */
+function book() {
+  titleEl.textContent = t("book");
+  const s = el("section", "screen"); s.appendChild(helper(CONST_INTRO[lang], false).el);
+  const sc = el("div", "scroll"); const g = el("div", "grid");
+  BOOK.concat(Object.keys(CONST)).forEach(id => { const c = button("card", null, () => visit(s, id, false)); c.appendChild(iconCanvas(id, 76)); c.appendChild(el("span", null, name(id))); g.appendChild(c); });
+  sc.appendChild(g); s.appendChild(sc); stage.appendChild(s);
+}
+
+/* ================= stickers ================= */
 function stickers() {
+  titleEl.textContent = t("stickers");
   const s = el("section", "screen");
-  s.appendChild(el("p", "hint", num(got.size) + " " + t("of") + " " + num(STICKERS.length)));
-  const book = el("div", "book");
+  s.appendChild(el("p", "hint", num(STICKERS.filter(id => got.has(id)).length) + " " + t("of") + " " + num(STICKERS.length)));
+  const sc = el("div", "scroll"); const g = el("div", "grid");
+  const label = id => ({ station: t("gBuild"), catcher: t("gCatch"), landing: name("moon"), marslanding: name("mars"), jupiterflyby: name("jupiter") })[id] || name(id);
   STICKERS.forEach(id => {
-    const has = got.has(id), c = el("div", "stk" + (has ? "" : " no"));
+    const has = got.has(id), c = button("card" + (has ? "" : " no"), null, () => { if (has) say(label(id)); });
     if (has) c.appendChild(iconCanvas(id, 76)); else { const cv = el("canvas"); c.appendChild(cv); requestAnimationFrame(() => { const { x, w, h } = fit(cv); x.strokeStyle = "#aab3e8"; x.setLineDash([6, 6]); x.lineWidth = 3; x.beginPath(); x.arc(w / 2, h / 2, Math.min(w, h) * .38, 0, 7); x.stroke(); x.fillStyle = "#aab3e8"; x.font = "800 30px " + getComputedStyle(document.body).fontFamily; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("?", w / 2, h / 2 + 2); }); }
-    c.appendChild(el("span", null, has ? nameOf(id) : ""));
-    if (has) { c.style.cursor = "pointer"; c.onclick = () => say(nameOf(id)); }
-    book.appendChild(c);
+    c.appendChild(el("span", null, has ? label(id) : "")); g.appendChild(c);
   });
-  s.appendChild(book);
-  const par = el("p", "parent"); const rb = el("button", null, t("reset")); rb.type = "button"; let armed = false;
-  rb.onclick = () => { if (!armed) { armed = true; rb.textContent = t("resetSure"); setTimeout(() => { armed = false; rb.textContent = t("reset"); }, 4000); return; } got = new Set(); store.set("stickers", []); go("stickers"); };
+  sc.appendChild(g); s.appendChild(sc);
+  const par = el("p", "parent"); let armed = false;
+  const rb = button(null, t("reset"), () => { if (!armed) { armed = true; rb.textContent = t("resetSure"); setTimeout(() => { armed = false; rb.textContent = t("reset"); }, 4000); return; } got = new Set(); prog = {}; factSeen = 0; store.set("stickers", []); store.set("progress", {}); store.set("factSeen", 0); go("stickers"); });
   par.appendChild(rb); s.appendChild(par); stage.appendChild(s);
 }
 
-/* ---------------- start ---------------- */
+/* ================= start ================= */
 document.documentElement.lang = lang; document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
-const h0 = location.hash.slice(1);
-go(["explore", "build", "catch", "launch", "stickers"].includes(h0) ? h0 : "home");
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h !== screen) go(["explore", "build", "catch", "launch", "stickers"].includes(h) ? h : "home"); });
+function fromHash() { const h = location.hash.slice(1); const m = h.match(/^level-(\d+)$/); if (m) { const i = +m[1] - 1; if (i >= 0 && i < LEVELS.length && unlocked(i)) return go("level", i); } go(["map", "free", "book", "stickers", "explore"].includes(h) ? h : "home"); }
+fromHash();
+window.addEventListener("hashchange", fromHash);   // address changes (browser back, links) switch screens too
 try { speechSynthesis.getVoices(); } catch (e) {}
 })();
 </script>
