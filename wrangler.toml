@@ -5,5 +5,7 @@ main = "worker/src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
 preview_urls = false
+# Keep variables set in the Cloudflare dashboard when a GitHub push redeploys.
+keep_vars = true
 # Secrets (APP_TOKEN, ALPACA_KEY_ID, ALPACA_SECRET, SEC_USER_AGENT, ANTHROPIC_API_KEY) are set in the
 # Cloudflare dashboard as type Secret. Never put them in this file.
