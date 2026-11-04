@@ -1,0 +1,5 @@
+name = "standard-vela-proxy"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+# Secrets are set with: npx wrangler secret put APP_TOKEN  (and ALPACA_KEY_ID, ALPACA_SECRET)
+# Never put them in this file.
