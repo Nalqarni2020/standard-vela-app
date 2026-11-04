@@ -1,0 +1,7 @@
+# Lets Cloudflare build from the repository root (Root directory "/").
+# The server code lives in worker/; worker/wrangler.toml is the same config for builds run from that folder.
+name = "standard-vela-app"
+main = "worker/src/index.js"
+compatibility_date = "2026-10-01"
+# Secrets (APP_TOKEN, ALPACA_KEY_ID, ALPACA_SECRET, SEC_USER_AGENT, ANTHROPIC_API_KEY) are set in the
+# Cloudflare dashboard as type Secret. Never put them in this file.

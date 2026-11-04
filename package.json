@@ -3,5 +3,8 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs && npm --prefix worker test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0"
   }
 }
