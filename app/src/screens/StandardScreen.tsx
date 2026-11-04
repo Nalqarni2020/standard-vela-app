@@ -66,7 +66,9 @@ export function StandardScreen({ theme, settings, onSymbol }: { theme: Theme; se
   const conf = data ? confirmedDaily(data.daily, now) : [];
   const shown = q && open && q.last != null ? q.last : conf.length ? conf[conf.length - 1].c : null;
   const prior = conf.length > 1 ? conf[conf.length - 2].c : null;
-  const base = open ? q?.prevClose ?? null : prior;
+  // Official consolidated close from the daily bars. The snapshot's prevClose is from IEX alone and can differ.
+  // While the market is open, today's bar is not in `conf`, so its last bar is the prior session's close.
+  const base = open ? (conf.length ? conf[conf.length - 1].c : q?.prevClose ?? null) : prior;
   const buy = r && r.verdict === "BUY";
 
   return (
