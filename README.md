@@ -48,7 +48,7 @@ npx wrangler secret put ALPACA_KEY_ID
 ```bash
 npx wrangler secret put ALPACA_SECRET
 ```
-Wrangler prints the Worker address, for example `https://standard-vela-proxy.<you>.workers.dev`.
+Wrangler prints the Worker address, for example `https://standard-vela-app.<you>.workers.dev`.
 
 Two more secrets switch on the extra desks. Each is optional; a desk whose secret is missing says so.
 

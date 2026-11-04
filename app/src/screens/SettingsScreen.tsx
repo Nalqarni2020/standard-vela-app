@@ -34,7 +34,7 @@ export function SettingsScreen({ theme, settings, onSaved }: { theme: Theme; set
     <ScrollView style={{ backgroundColor: theme.paper }} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
       {msg ? <Banner theme={theme} text={msg.text} bad={msg.bad} /> : null}
       <Card theme={theme} title="Data proxy">
-        {field("Proxy address", s.proxyUrl, v => setS({ ...s, proxyUrl: v }), { placeholder: "https://standard-vela-proxy.you.workers.dev", keyboardType: "url" })}
+        {field("Proxy address", s.proxyUrl, v => setS({ ...s, proxyUrl: v }), { placeholder: "https://standard-vela-app.you.workers.dev", keyboardType: "url" })}
         {field("Access token", s.token, v => setS({ ...s, token: v }), { secureTextEntry: true, placeholder: "the APP_TOKEN you set on the proxy" })}
         <View style={{ flexDirection: "row", gap: 8, padding: 14 }}>
           <Btn theme={theme} label="Save" primary onPress={save} />
