@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Letter Planets",
+    "slug": "letter-planets",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nalqarni2020.letterplanets"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#3a0f45",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.nalqarni2020.letterplanets"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "backgroundColor": "#0b1033"
+  }
+}

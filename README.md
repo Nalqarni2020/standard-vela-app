@@ -79,7 +79,7 @@ npx eas-cli@latest build -p android --profile preview
 ```bash
 npx eas-cli@latest build -p ios --profile preview
 ```
-The Android app ID is `com.nalqarni2020.standardvela`; Little Astronaut is `com.nalqarni2020.littleastronaut`.
+The Android app ID is `com.nalqarni2020.standardvela`. The kids' apps are Little Astronaut (`kids/`, `com.nalqarni2020.littleastronaut`), Number Galaxy (`kids-numbers/`, `com.nalqarni2020.numbergalaxy`) and Letter Planets (`kids-letters/`, `com.nalqarni2020.letterplanets`).
 
 ## Desks
 
