@@ -86,6 +86,50 @@
       t1: o.entry + side * per, t2: o.entry + side * 2 * per, t3: o.entry + side * 3 * per, stopPct: per / o.entry };
   }
 
+  /* ---------- Hodrick-Prescott filter (Kakushadze and Serur, 2018, section 8.1) ----------
+     The trend tau minimises sum (y - tau)^2 + lambda * sum (second difference of tau)^2, which is the linear system
+     (I + lambda K) tau = y with K = D'D, D the second-difference matrix. The matrix is symmetric, positive definite and
+     pentadiagonal, so a banded Cholesky factor (bandwidth 2) solves it in O(n). The factor depends only on n and lambda,
+     so it is built once per window and reused. The filter is two-sided: run over a whole history it uses the future.
+     Here it is one-sided: for every day it is run on the trailing window only and only its last point is kept. */
+  const hpCache = new Map();
+  function hpFactor(n, lam) {
+    const key = n + ":" + lam; if (hpCache.has(key)) return hpCache.get(key);
+    const kd0 = i => (i === 0 || i === n - 1) ? 1 : (i === 1 || i === n - 2) ? 5 : 6, kd1 = i => (i === 0 || i === n - 2) ? -2 : -4;   // K's diagonals (n >= 4)
+    const l0 = new Float64Array(n), l1 = new Float64Array(n), l2 = new Float64Array(n);   // L[i][i], L[i][i-1], L[i][i-2]
+    for (let i = 0; i < n; i++) {
+      l2[i] = i >= 2 ? lam / l0[i - 2] : 0;
+      l1[i] = i >= 1 ? (lam * kd1(i - 1) - (i >= 2 ? l2[i] * l1[i - 1] : 0)) / l0[i - 1] : 0;
+      l0[i] = Math.sqrt(1 + lam * kd0(i) - l1[i] * l1[i] - l2[i] * l2[i]);
+    }
+    const f = { n, l0, l1, l2 }; hpCache.set(key, f); return f;
+  }
+  // Full trend over y (for tests and charts).
+  function hpTrend(y, lam) {
+    const n = y.length; if (n < 4 || !(lam > 0)) return Array.from(y);
+    const { l0, l1, l2 } = hpFactor(n, lam), z = new Float64Array(n), x = new Float64Array(n);
+    for (let i = 0; i < n; i++) z[i] = (y[i] - (i >= 1 ? l1[i] * z[i - 1] : 0) - (i >= 2 ? l2[i] * z[i - 2] : 0)) / l0[i];
+    for (let i = n - 1; i >= 0; i--) x[i] = (z[i] - (i + 1 < n ? l1[i + 1] * x[i + 1] : 0) - (i + 2 < n ? l2[i + 2] * x[i + 2] : 0)) / l0[i];
+    return Array.from(x);
+  }
+  // Last point of the trend only: the forward pass gives it directly (back substitution starts at the end).
+  function hpLast(y, from, n, f) {
+    let z1 = 0, z2 = 0, z = 0;
+    for (let i = 0; i < n; i++) { z = (y[from + i] - (i >= 1 ? f.l1[i] * z1 : 0) - (i >= 2 ? f.l2[i] * z2 : 0)) / f.l0[i]; z2 = z1; z1 = z; }
+    return z / f.l0[n - 1];
+  }
+  const HP = { window: 252, lambda: 100 * 252 * 252, fast: 10, slow: 50 };   // lambda = 100 x (observations a year)^2, the book's rule
+  /* One-sided HP trend for every bar (null until a full window), and its fast and slow moving averages. */
+  function hpSeries(c) {
+    const n = c.length, W = HP.window, T = new Array(n).fill(null), fa = new Array(n).fill(null), sl = new Array(n).fill(null);
+    if (n < W) return { T, fast: fa, slow: sl };
+    const f = hpFactor(W, HP.lambda);
+    for (let i = W - 1; i < n; i++) T[i] = hpLast(c, i - W + 1, W, f);
+    const ma = (k, len) => { if (k < W - 1 + len - 1) return null; let s0 = 0; for (let j = k - len + 1; j <= k; j++) s0 += T[j]; return s0 / len; };
+    for (let i = W - 1; i < n; i++) { fa[i] = ma(i, HP.fast); sl[i] = ma(i, HP.slow); }
+    return { T, fast: fa, slow: sl };
+  }
+
   /* ---------- swing setups on daily bars ---------- */
   function prep(b) {
     const E = En(), c = b.map(x => x.c), v = b.map(x => x.v);
@@ -95,7 +139,8 @@
       if (i >= 19) { let m = -Infinity; for (let k = i - 19; k <= i; k++) m = Math.max(m, b[k].h); hi20[i] = m; }
       if (i >= 4) { let m = Infinity; for (let k = i - 4; k <= i; k++) m = Math.min(m, b[k].l); lo5[i] = m; }
     }
-    return { s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5 };
+    const hp = hpSeries(c);
+    return { s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
   }
   const SETUPS = [
     { id: "pullback", label: "Pullback in an uptrend", short: "Pullback", cite: "Short-term reversal (Jegadeesh, 1990; Lehmann, 1990) inside a trend (Moskowitz, Ooi and Pedersen, 2012)",
@@ -106,6 +151,8 @@
       rule: "In the last 10 sessions, an opening gap of 4% or more on twice the 50-day volume; no close since under that day's low and the price still over the pre-gap close. Buy above the day's high; stop under the gap day's low. Often an earnings day." },
     { id: "volume", label: "Volume shock on an up day", short: "Volume shock", cite: "Gervais, Kaniel and Mingelgrin (2001)",
       rule: "Volume at least twice the 50-day average, an up close, closing in the upper half of the day's range. Buy above the high; stop under the low." },
+    { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
+      rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
   // Stops are kept between 0.75 and 2.5 ATR from the entry, so a tiny or huge range cannot make the size absurd.
   function clampStop(entry, stop, a) { const d = Math.min(Math.max(entry - stop, 0.75 * a), 2.5 * a); return entry - d; }
@@ -117,7 +164,11 @@
     const c = b[i].c, a = x.atr[i]; if (!a || !(a > 0)) return out;
     if (!liquid(b, x, i, liq)) return out;
     const trend = x.s200[i] != null && x.s200[i - 20] != null && c > x.s200[i] && x.s50[i] > x.s200[i] && x.s200[i] >= x.s200[i - 20];
-    const mk = (id, entry, stop, target) => { const s = SETUPS.find(z => z.id === id); stop = clampStop(entry, stop, a); const risk = entry - stop; if (!(target > entry + 0.5 * risk)) target = entry + 2 * risk; out.push({ id, label: s.label, entry, stop, target, risk, rr: (target - entry) / risk }); };
+    const mk = (id, entry, stop, target) => {
+      const s = SETUPS.find(z => z.id === id); stop = clampStop(entry, stop, a); const risk = entry - stop;
+      if (s.trend) { out.push({ id, label: s.label, entry, stop, target: Infinity, risk, rr: null, trend: true, maxHold: s.maxHold }); return; }   // trend setups ride until the trend turns
+      if (!(target > entry + 0.5 * risk)) target = entry + 2 * risk; out.push({ id, label: s.label, entry, stop, target, risk, rr: (target - entry) / risk });
+    };
     if (trend && ((x.rsi2[i] != null && x.rsi2[i] < 10) || (c < b[i - 1].c && b[i - 1].c < b[i - 2].c && b[i - 2].c < b[i - 3].c)) && c > x.s50[i] * 0.95) {
       const entry = b[i].h + 0.01; mk("pullback", entry, x.lo5[i] - 0.01, x.hi20[i]);
     }
@@ -129,6 +180,7 @@
       break;   // only the most recent qualifying gap counts
     }
     if (x.v50[i - 1] != null && b[i].v >= 2 * x.v50[i - 1] && c > b[i - 1].c && b[i].h > b[i].l && (c - b[i].l) >= 0.5 * (b[i].h - b[i].l)) { const entry = b[i].h + 0.01; mk("volume", entry, b[i].l - 0.01, null); }
+    if (x.hpF && x.hpF[i] != null && x.hpF[i - 1] != null && x.hpF[i] > x.hpS[i] && x.hpF[i - 1] <= x.hpS[i - 1]) { const entry = b[i].h + 0.01; mk("hp", entry, entry - 2 * a, null); }
     return out;
   }
 
@@ -162,7 +214,9 @@
             else if (q >= s.target && a < s.target) { exit = s.target; why = "Target"; }
           }
           if (exit != null || !filled) break;
-          if (j - k + 1 >= o.hold) { exit = b[j].c; why = "Time"; break; }
+          // a trend setup leaves at the next open once its averages cross back down (known at this close)
+          if (s.trend && x.hpF[j] != null && x.hpS[j] != null && x.hpF[j] < x.hpS[j] && j + 1 < b.length) { j = j + 1; exit = b[j].o; why = "Trend turned"; break; }
+          if (j - k + 1 >= (s.trend ? s.maxHold : o.hold)) { exit = b[j].c; why = "Time"; break; }
         }
         if (!filled) continue;
         const risk = fill - s.stop; if (!(risk > 0)) continue;
@@ -336,6 +390,6 @@
     return { R, stop, stopR: (stop - pos.entry) / risk, hi, atr: a, held, todo };
   }
 
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage };
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);

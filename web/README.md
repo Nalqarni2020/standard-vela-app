@@ -21,7 +21,7 @@ build.js             writes index.html
 | Size a trade | Shares from account × risk × gate ÷ (entry − stop), capped. Earnings warning, liquidity, and a check for holdings that move with it (correlation 0.7 or more over 60 sessions). Saved plans are listed here. |
 | Manage | Each holding in R, its trailing stop (highest high since entry − 3 ATR, break-even after half at 1R), what is due (exit, take half, time, earnings). |
 | My edge | Your round trips by hold time, time of day, the gate, the setup, after a loss, busy days, size and planning, with lessons; trades matched to saved plans in R, with broken stops and overstayed holds. |
-| Evidence | The scanner's exact rules backtested on the list, early and late periods, and a deflated Sharpe ratio that counts every setting you have tried. |
+| Evidence | The scanner's exact rules backtested on the list, early and late periods, and a deflated Sharpe ratio that counts every setting you have tried. Five setups: pullback, 52-week high, gap held, volume shock, and the Hodrick-Prescott trend turn (one-sided filter, no look-ahead). |
 
 Saved plans are kept in the page's private database (`data/users/<you>`): only you can read them. Where that is not available they are kept in the browser.
 

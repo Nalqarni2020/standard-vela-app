@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 4); assert(ev.trials === 20);
+  assert.equal(ev.rows.length, 5); assert(ev.trials === 20);
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -166,5 +166,45 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   const g = P.edgeReport(both).groups.find(q => q.title === 'Broker');
   assert.equal(g.rows[0].s.n, 6); assert.equal(g.rows[1].s.n, 5); near(g.rows[1].s.exp, 30);
   assert(P.edgeReport(both).lessons.some(l => /your Webull trades \$30/.test(l))); ok();
+}
+
+// Hodrick-Prescott: the banded solver matches a dense solve; a straight line is its own trend; the one-sided last point
+{
+  const dense = (y, lam) => { // (I + lam D'D) x = y by Gaussian elimination
+    const n = y.length, A = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => i === j ? 1 : 0));
+    for (let r = 0; r < n - 2; r++) { const d = [1, -2, 1]; for (let a = 0; a < 3; a++) for (let c = 0; c < 3; c++) A[r + a][r + c] += lam * d[a] * d[c]; }
+    const M = A.map((row, i) => row.concat([y[i]]));
+    for (let c = 0; c < n; c++) { let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r; [M[c], M[p]] = [M[p], M[c]]; for (let r = c + 1; r < n; r++) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; } }
+    const x = new Array(n).fill(0); for (let r = n - 1; r >= 0; r--) { let s0 = M[r][n]; for (let k = r + 1; k < n; k++) s0 -= M[r][k] * x[k]; x[r] = s0 / M[r][r]; } return x;
+  };
+  let seed = 3; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (const [n, lam] of [[8, 1600], [30, 129600], [60, 6350400]]) {
+    const y = Array.from({ length: n }, (_, i) => 100 + i * 0.3 + (rnd() - 0.5) * 5);
+    const a = P.hpTrend(y, lam), b2 = dense(y, lam);
+    a.forEach((v, i) => near(v, b2[i], 1e-6 * Math.max(1, Math.abs(b2[i]))));
+  }
+  const line = Array.from({ length: 50 }, (_, i) => 20 + 0.5 * i);
+  P.hpTrend(line, 6350400).forEach((v, i) => near(v, line[i], 1e-6));
+  // the one-sided series uses only the trailing window: its value at i equals the full filter run on c[i-251..i]
+  const c = Array.from({ length: 300 }, (_, i) => 50 + 10 * Math.sin(i / 25) + (rnd() - 0.5));
+  const hs = P.hpSeries(c), i = 280;
+  near(hs.T[i], P.hpTrend(c.slice(i - 251, i + 1), P.HP.lambda).pop(), 1e-7);
+  assert.equal(hs.T[250], null); assert(hs.fast[259] === null && hs.fast[260] != null && hs.slow[299] === null);
+  // changing a future price never changes a past value
+  const c2 = c.slice(); c2[299] += 50; assert.equal(P.hpSeries(c2).T[i], hs.T[i]);
+  ok();
+}
+
+// HP setup: a fall then a steady rise produces a cross up, a trade with no target, and an exit when the trend turns down
+{
+  const n = 520, b = Array.from({ length: n }, (_, i) => { const c = i < 300 ? 100 - i * 0.1 : i < 420 ? 70 + (i - 300) * 0.4 : 118 - (i - 420) * 0.5; return Object.assign(day(i), { o: c, h: c * 1.01, l: c * 0.99, c, v: 1e6 }); });
+  const x = P.prep(b);
+  let first = -1; for (let i = 300; i < n; i++) if (P.setupsAt(b, x, i).some(s => s.id === 'hp')) { first = i; break; }
+  assert(first > 300 && first < 420, 'cross up during the rise: ' + first);
+  const s = P.setupsAt(b, x, first).find(z => z.id === 'hp'); assert.equal(s.target, Infinity); assert.equal(s.rr, null);
+  const tr = P.simulate(b, x, { cost: 0 }).filter(t => t.id === 'hp');
+  assert(tr.length >= 1); assert(['Trend turned', 'Time', 'Stop'].includes(tr[0].why));
+  assert(tr.some(t => t.why === 'Trend turned' || t.why === 'Time'));
+  ok();
 }
 console.log('playbook tests passed:', n);
