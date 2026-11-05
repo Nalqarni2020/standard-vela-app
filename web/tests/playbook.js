@@ -155,4 +155,16 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert(h.stop >= 115); assert(h.todo.some(t => t.k === 'exit'));
   assert.equal(P.manage({ entry: 10, stop: 11, date: d0 }, b, 10, b[59].d), null); ok();
 }
+
+// broker group appears only when there are Webull trades, and compares the two
+{
+  const T = (d) => Date.parse('2026-04-' + String(d).padStart(2, '0') + 'T15:00:00Z');
+  const mk = (sym, d, px0, px1, broker) => { const r = A.roundTrips([{ symbol: sym, side: 'buy', qty: 10, price: px0, t: T(d) }, { symbol: sym, side: 'sell', qty: 10, price: px1, t: T(d + 2) }]).trips; r.forEach(t => { t.broker = broker; }); return r; };
+  const rhOnly = [].concat(...[1, 4, 7, 10, 13, 16].map((d, k) => mk('R' + k, d, 10, k % 2 ? 11 : 9.5, 'rh')));
+  assert(!P.edgeReport(rhOnly).groups.some(g => g.title === 'Broker'));
+  const both = rhOnly.concat(...[2, 5, 8, 11, 14].map((d, k) => mk('W' + k, d, 10, 13, 'wb')));
+  const g = P.edgeReport(both).groups.find(q => q.title === 'Broker');
+  assert.equal(g.rows[0].s.n, 6); assert.equal(g.rows[1].s.n, 5); near(g.rows[1].s.exp, 30);
+  assert(P.edgeReport(both).lessons.some(l => /your Webull trades \$30/.test(l))); ok();
+}
 console.log('playbook tests passed:', n);

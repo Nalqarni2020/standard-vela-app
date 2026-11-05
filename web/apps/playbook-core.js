@@ -257,7 +257,7 @@
       ["How busy you were", [["Days with 4 or more buys", t => perDay[t.entryDay] >= 4], ["Days with 1 to 3 buys", t => perDay[t.entryDay] < 4]]],
       ["How big the position was", [["Your largest third", t => t.entryPx * t.qty >= bigCut], ["The rest", t => t.entryPx * t.qty < bigCut]]],
       ["Planning", [["With a saved plan", t => !!t.plan], ["Without a plan", t => t.plan === null]]],
-    ].map(([title, defs]) => ({ title, rows: defs.map(([label, f]) => ({ label, s: st(T.filter(f)) })) }));
+    ].concat(T.some(t => t.broker === "wb") ? [["Broker", [["Robinhood", t => t.broker !== "wb"], ["Webull", t => t.broker === "wb"]]]] : []).map(([title, defs]) => ({ title, rows: defs.map(([label, f]) => ({ label, s: st(T.filter(f)) })) }));
     const all = st(T), lessons = [], money = v => (v < 0 ? "−$" : "$") + Math.abs(v).toFixed(0);
     const cmp = (gTitle, a, b, say) => { const g = groups.find(x => x.title === gTitle); const A = g.rows.find(r => r.label === a).s, B = g.rows.find(r => r.label === b).s; if (A && B && A.n >= 5 && B.n >= 5 && Math.abs(A.exp - B.exp) > Math.max(5, Math.abs(all.exp) * 0.25)) lessons.push({ w: Math.abs(A.exp - B.exp) * Math.min(A.n, B.n), text: say(A, B) }); };
     cmp("Your state of mind", "Right after a loss", "Right after a win", (A, B) => A.exp < B.exp ? `Trades right after a loss made ${money(A.exp)} each, against ${money(B.exp)} after a win. Consider a pause after a loss.` : `You traded better right after a loss (${money(A.exp)} each) than after a win (${money(B.exp)}). Watch for overconfidence after wins.`);
@@ -266,6 +266,7 @@
     cmp("The market gate when you bought", "Go", "Stand aside", (A, B) => `Buys on Go days made ${money(A.exp)} each; on Stand-aside days ${money(B.exp)}.`);
     cmp("How long you held", "Same day", "1 to 5 days", (A, B) => `Same-day trades made ${money(A.exp)} each; 1 to 5 day swings ${money(B.exp)}.`);
     cmp("How big the position was", "Your largest third", "The rest", (A, B) => A.exp < B.exp ? `Your biggest positions did worse per dollar of result (${money(A.exp)} a trade against ${money(B.exp)}). Size is best set by the stop, not by conviction.` : `Your biggest positions made ${money(A.exp)} a trade, the rest ${money(B.exp)}.`);
+    if (groups.some(g => g.title === "Broker")) cmp("Broker", "Robinhood", "Webull", (A, B) => `Your Robinhood trades made ${money(A.exp)} each; your Webull trades ${money(B.exp)}.`);
     cmp("Planning", "With a saved plan", "Without a plan", (A, B) => `Trades with a saved plan made ${money(A.exp)} each; trades without one made ${money(B.exp)}.`);
     const setupG = groups.find(g => g.title.startsWith("Setup")).rows, none = setupG[setupG.length - 1].s, anyS = st(T.filter(t => t.setups && t.setups.length));
     if (anyS && none && anyS.n >= 5 && none.n >= 5) lessons.push({ w: Math.abs(anyS.exp - none.exp) * Math.min(anyS.n, none.n), text: `Buys that matched one of the four setups made ${money(anyS.exp)} each; buys that matched none made ${money(none.exp)}.` });

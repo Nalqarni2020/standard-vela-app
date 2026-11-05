@@ -33,8 +33,7 @@
   async function listSets(msg) {
     const id = cfg.listId; if (!id) return [];
     const key = id; if (sets && setsKey === key) return sets;
-    const items = await call("get_watchlist_items", { list_id: id }, 600000);
-    const syms = ((items && items.items) || []).filter(i => i.object_type === "instrument" && i.symbol).map(i => i.symbol).slice(0, 60);
+    const syms = [...new Set(await D.listSymbols(id))].slice(0, 60);
     const bars = await D.dailyBars(syms, 1100, (i, n) => msg && msg(`Reading history ${i} of ${n}…`));
     sets = syms.map(sym => ({ sym, bars: bars[sym] || [] })).filter(s => s.bars.length >= 60).map(s => Object.assign(s, { x: P.prep(s.bars) }));
     setsKey = key; ev = null; return sets;
@@ -48,7 +47,13 @@
     if (!tr.keys.includes(k)) { tr.keys.push(k); ev.rows.forEach(r => { if (r.sr != null) tr.srs.push(+r.sr.toFixed(4)); }); tr.srs = tr.srs.slice(-400); D.save("pbTrials", tr); ev.trials = Math.max(4, tr.keys.length * 4); ev.rows.forEach(r => { r.deflated = P.deflatedSharpe({ sr: r.sr, n: r.n, skew: r.skew, kurt: r.kurt, trials: ev.trials, srVar: P.variance(tr.srs) }); }); }
     evKey = k; return ev;
   }
+  let wbAcct = null, wbBal = null, wbTried = false;
+  async function webull() {
+    if (wbTried) return; wbTried = true;
+    try { wbAcct = await D.wb.account(); if (wbAcct) wbBal = await D.wb.balance(wbAcct.account_id); } catch (e) { wbAcct = null; wbBal = null; }
+  }
   async function account() {
+    webull().catch(() => {});
     if (acct && acctValue != null) return;
     const d = await call("get_accounts", {}, 600000);
     const list = ((d && d.accounts) || []).filter(a => a.state === "active" && !a.deactivated).sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
@@ -98,11 +103,15 @@
   const repText = r => r === undefined ? "unknown" : r === null ? "none listed" : `${r.date} ${r.timing === "am" ? "before the open" : r.timing === "pm" ? "after the close" : ""}`.trim();
   const repCell = r => r === undefined ? '<span class="muted">?</span>' : r === null ? '<span class="muted">—</span>' : P.earningsInside(r, +cfg.hold) ? `<span class="pill fail" title="${esc(repText(r))}">In ${r.gapIn} session${r.gapIn === 1 ? "" : "s"}</span>` : `<span class="muted" title="${esc(repText(r))}">${esc(r.date.slice(5))}</span>`;
   async function positions() {
-    if (!acct) return [];
     let out = [], cursor = null, pages = 0;
+    if (acct)
     do { const d = await call("get_equity_positions", Object.assign({ account_number: acct }, cursor ? { cursor } : {}), 30000); out = out.concat((d && d.positions) || []); cursor = d && d.next ? d.next : null; pages++; } while (cursor && pages < 10);
-    return out.filter(p => +p.quantity > 0 && (!p.type || p.type === "long")).map(p => ({ sym: p.symbol, qty: +p.quantity, avg: p.average_buy_price != null ? +p.average_buy_price : null }));
+    const rh = out.filter(p => +p.quantity > 0 && (!p.type || p.type === "long")).map(p => ({ sym: p.symbol, qty: +p.quantity, avg: p.average_buy_price != null ? +p.average_buy_price : null, broker: "rh" }));
+    await webull();
+    const w = wbAcct ? await D.wb.positions(wbAcct.account_id).catch(() => null) : null;
+    return rh.concat(w || []);
   }
+  const BROKER = { rh: "Robinhood", wb: "Webull" };
   /* Holdings whose last 60 daily returns moved with the candidate at 0.7 or more. */
   async function concentration(sym, addValue) {
     const pos = (await positions()).filter(p => p.sym !== sym); if (!pos.length) return { pos: [], hits: [] };
@@ -117,7 +126,11 @@
     out.sort((a, b) => b.c - a.c);
     return { pos, hits: out, together: (out.reduce((s, h) => s + h.val, 0) + (addValue || 0)) / eq };
   }
-  const sizingValue = () => +cfg.acctOverride > 0 ? +cfg.acctOverride : acctValue;
+  // Which accounts sizing and the daily loss limit use: Robinhood, Webull or both together.
+  const useRh = () => cfg.sizeFrom !== "wb", useWb = () => cfg.sizeFrom === "wb" || cfg.sizeFrom === "both";
+  const sizingValue = () => +cfg.acctOverride > 0 ? +cfg.acctOverride : ((useRh() ? acctValue || 0 : 0) + (useWb() && wbBal ? wbBal.value || 0 : 0)) || null;
+  // Robinhood counts closed sales only; Webull's day P&L includes open positions, so it can lock earlier, never later.
+  const dayLoss = () => (useRh() && today ? today.realized : 0) + (useWb() && wbBal && wbBal.dayPL != null ? wbBal.dayPL : 0);
   async function todayStats() {
     const n = nyNow(); let realized = 0, sales = 0, buys = 0, cursor = null, pages = 0;
     do {
@@ -129,7 +142,7 @@
     ((o && o.orders) || []).forEach(x => { const ex = (x.executions || []).map(z => Date.parse(z.timestamp)).filter(isFinite); const t = ex.length ? Math.max(...ex) : Date.parse(x.last_transaction_at || x.created_at); if (x.side === "buy" && isFinite(t) && E.ny(t).date === n.date) buys++; });
     return { date: n.date, realized, sales, buys };
   }
-  const locked = () => !!(today && sizingValue() && today.realized <= -cfg.lossPct / 100 * sizingValue());
+  const locked = () => !!((today || (useWb() && wbBal)) && sizingValue() && dayLoss() <= -cfg.lossPct / 100 * sizingValue());
   async function ensureGate(msg) {
     const m = await macro();
     let pct50 = null;
@@ -172,7 +185,8 @@
             ${field("pbLoss", "Daily loss limit (% of account)", cfg.lossPct, "0.5", 'min="0.5" max="20"')}
             ${field("pbCap", "Largest position (% of account)", cfg.capPct, "1", 'min="1" max="100"')}
             ${field("pbCost", "Cost per side, for tests (basis points)", cfg.costBps, "1", 'min="0" max="100"')}
-            ${field("pbAcct", "Account value for sizing (blank = Robinhood's)", cfg.acctOverride, "100", 'min="0" placeholder="From Robinhood"')}
+            <label class="field"><span>Size from</span><select id="pbFrom"><option value="rh">Robinhood account</option><option value="wb">Webull account</option><option value="both">Both together</option></select></label>
+            ${field("pbAcct", "Account value for sizing (blank = from the brokers)", cfg.acctOverride, "100", 'min="0" placeholder="From your brokers"')}
             ${field("pbMinPx", "Skip stocks under this price ($)", cfg.minPrice, "1", 'min="0"')}
             ${field("pbMinDv", "Skip under this daily dollar volume ($ millions, 20-day)", cfg.minDvM, "1", 'min="0"')}
             ${field("pbSpread", "Flag a bid-ask spread wider than (%)", cfg.maxSpread, "0.1", 'min="0"')}
@@ -181,8 +195,8 @@
         <div class="panel"><div class="ph"><h2>Today's account</h2><span class="eyebrow" id="pbDay"></span></div><div id="pbAcctBox" class="pb"><p class="muted" style="margin:0">Reading the account…</p></div></div>
       </div>`;
     const bind = (id, key) => { box.querySelector("#" + id).onchange = e => { cfg[key] = e.target.value === "" ? "" : +e.target.value; saveCfg(); drawn = { today: true }; renderAcct(box); renderGate(box); }; };
-    bind("pbRisk", "riskPct"); bind("pbLoss", "lossPct"); bind("pbCap", "capPct"); bind("pbCost", "costBps"); bind("pbAcct", "acctOverride"); bind("pbMinPx", "minPrice"); bind("pbMinDv", "minDvM"); bind("pbSpread", "maxSpread");
-    try { await account(); today = await todayStats().catch(() => null); } catch (e) { box.querySelector("#pbAcctBox").innerHTML = '<div class="banner bad">' + esc(e.message) + "</div>"; }
+    bind("pbRisk", "riskPct"); bind("pbLoss", "lossPct"); bind("pbCap", "capPct"); bind("pbCost", "costBps"); bind("pbAcct", "acctOverride"); box.querySelector("#pbFrom").value = cfg.sizeFrom || "rh"; box.querySelector("#pbFrom").onchange = e => { cfg.sizeFrom = e.target.value; saveCfg(); drawn = { today: true }; renderAcct(box); }; bind("pbMinPx", "minPrice"); bind("pbMinDv", "minDvM"); bind("pbSpread", "maxSpread");
+    try { await account(); await webull(); today = await todayStats().catch(() => null); } catch (e) { box.querySelector("#pbAcctBox").innerHTML = '<div class="banner bad">' + esc(e.message) + "</div>"; }
     renderAcct(box);
     try { await ensureGate(t => { const g = box.querySelector("#pbGate"); if (g) busy(g, t); }); renderGate(box); } catch (e) { fail(box.querySelector("#pbGate"), e); }
   }
@@ -191,10 +205,11 @@
     const v = sizingValue(), limit = v ? cfg.lossPct / 100 * v : null;
     box.querySelector("#pbDay").textContent = today ? "New York " + today.date : "";
     const lk = locked();
-    el.innerHTML = (lk ? `<div class="banner bad" style="margin-bottom:10px"><b>Daily loss limit reached.</b> Realized today ${esc(money(today.realized))}, past your limit of ${esc(money(-limit))}. Sizes are set to zero for the rest of the day. Stopping after a set loss keeps one bad day from becoming a bad month.</div>` : "") +
-      `<div class="kv four">${D.kv([["Account value", money(v)], ["Account", acct ? mask(acct) : "—"], ["Realized today", today ? money(today.realized) : "—"], ["Loss limit left", limit != null && today ? money(Math.max(0, limit + Math.min(0, today.realized))) : money(limit)], ["Risk per trade", v ? money(v * cfg.riskPct / 100) : "—"], ["Buys today", today ? String(today.buys) : "—"]])}</div>` +
+    el.innerHTML = (lk ? `<div class="banner bad" style="margin-bottom:10px"><b>Daily loss limit reached.</b> Loss today ${esc(money(dayLoss()))}, past your limit of ${esc(money(-limit))}. Sizes are set to zero for the rest of the day. Stopping after a set loss keeps one bad day from becoming a bad month.</div>` : "") +
+      `<div class="kv four">${D.kv([["Account value", money(v)], ["Account", acct ? mask(acct) : "—"], ["Realized today (Robinhood)", today ? money(today.realized) : "—"], ["Loss limit left", limit != null ? money(Math.max(0, limit + Math.min(0, dayLoss()))) : "—"], ["Risk per trade", v ? money(v * cfg.riskPct / 100) : "—"], ["Buys today", today ? String(today.buys) : "—"]])}</div>` +
       (today && today.buys >= 5 ? `<p style="margin:10px 0 0;font-size:13px"><b>${today.buys} buys today.</b> In large studies of brokerage accounts the most active traders earned the least after costs (Barber and Odean, 2000). Check the My edge tab for how your busy days went.</p>` : "") +
-      '<p class="muted" style="font-size:12px;margin:10px 0 0">Realized today counts closed sales only; open positions are not marked. Options and crypto are not included.</p>';
+      (wbAcct ? `<div class="kv four" style="margin-top:10px">${D.kv([["Webull account", wbBal ? money(wbBal.value) : "—"], ["Webull cash", wbBal ? money(wbBal.cash) : "—"], ["Webull day P&L", wbBal ? money(wbBal.dayPL) : "—"], ["Webull unrealized", wbBal ? money(wbBal.unrealized) : "—"]])}</div>` : `<p class="muted" style="font-size:12px;margin:10px 0 0">${esc(D.wb.state === "off" ? D.wb.why() + " Robinhood only." : "Webull: not read yet.")}</p>`) +
+      '<p class="muted" style="font-size:12px;margin:10px 0 0">Sizing uses ' + (cfg.sizeFrom === "wb" ? "the Webull account" : cfg.sizeFrom === "both" ? "Robinhood and Webull together" : "the Robinhood account") + '. Robinhood\'s figure counts closed sales only; Webull\'s day P&amp;L also counts open positions, so with Webull included the lock can come earlier, never later. Options and crypto are not included.</p>';
   }
   function renderGate(box) {
     const g = gateRes, el = box.querySelector("#pbGate"); if (!g || !el) return;
@@ -213,6 +228,8 @@
     scan(box);
   }
   let scanHits = [];
+  // Robinhood consensus: share of Buy ratings and the average target against the entry.
+  const anCell = (a, px0) => !a || !a.n ? '<span class="muted">—</span>' : `<span title="${esc(a.buy + " buy, " + a.hold + " hold, " + a.sell + " sell; targets " + (a.low ?? "—") + " to " + (a.high ?? "—"))}">${Math.round(a.buy / a.n * 100)}% buy${a.mean ? ` · <span class="chg ${a.mean >= px0 ? "up" : "down"}">${pct(a.mean / px0 - 1)}</span>` : ""}</span>`;
   async function scan(box) {
     const out = box.querySelector("#pbScanOut"), btn = box.querySelector("#pbScanRun"); btn.disabled = true;
     try {
@@ -229,16 +246,17 @@
       busy(out, "Checking earnings dates and spreads…");
       const hs = [...new Set(hits.map(x => x.sym))].slice(0, 30), reps = {}; await Promise.all(hs.map(async sy => { reps[sy] = await nextRep(sy); }));
       const qs = sessionNow() && hs.length ? await D.quotes(hs).catch(() => ({})) : {};
-      hits.forEach(x => { x.rep = reps[x.sym]; const q = qs[x.sym]; x.spread = q && q.bid > 0 && q.ask > q.bid ? (q.ask - q.bid) / ((q.ask + q.bid) / 2) : null; });
+      const an = await D.rhAnalyst(hs).catch(() => ({}));
+      hits.forEach(x => { x.an = an[x.sym]; x.rep = reps[x.sym]; const q = qs[x.sym]; x.spread = q && q.bid > 0 && q.ask > q.bid ? (q.ask - q.bid) / ((q.ask + q.bid) / 2) : null; });
       scanHits = hits;
       const [gname, gcls] = VERD[gateRes.verdict];
       let h = `<p class="verdict-line" style="font-size:18px"><span class="pill ${gcls}" style="vertical-align:middle">${esc(gname)}</span> ${esc(`${hits.length} swing setup${hits.length === 1 ? "" : "s"} on ${st.length} names, from closes to ${st[0] ? st[0].bars[st[0].bars.length - 1].d : "—"}. ` + (locked() ? "Sizes are zero: the daily loss limit is reached." : `Sizes use ${mult().toFixed(2)}× of your ${cfg.riskPct}% risk.`))}</p>`;
       h += `<div class="panel"><div class="ph"><h2>Swing setups</h2><span class="eyebrow">Buy-stop orders for the next session</span></div>
-        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Setup</th><th>Last close</th><th>Buy above</th><th>Stop</th><th>Target</th><th>Reward : risk</th><th>Shares</th><th>Risk</th><th>Setup on the list</th><th>On this name</th><th>Earnings</th><th></th></tr></thead><tbody>
+        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Setup</th><th>Last close</th><th>Buy above</th><th>Stop</th><th>Target</th><th>Reward : risk</th><th>Shares</th><th>Risk</th><th>Setup on the list</th><th>On this name</th><th>Earnings</th><th>Analysts</th><th></th></tr></thead><tbody>
         ${hits.length ? hits.map(x => `<tr class="clickable" tabindex="0" data-sym="${esc(x.sym)}"><td><b>${esc(x.sym)}</b></td><td>${esc(P.SETUPS.find(s => s.id === x.id).short)}</td><td>${px(x.last)}</td><td>${px(x.entry)}</td><td>${px(x.stop)} <span class="muted">${(x.risk / x.atr).toFixed(1)} ATR</span></td><td>${px(x.target)}</td><td>${x.rr.toFixed(1)}</td><td>${sharesCell(x.plan)}</td><td>${x.plan.shares ? money(x.plan.riskDollars) : "—"}</td>
-          <td>${x.list && x.list.n ? `<span class="chg ${x.list.expR >= 0 ? "up" : "down"}">${R(x.list.expR)}</span> <span class="muted">${x.list.n}</span> <span class="pill ${SHORTV[x.list.verdict.key][1]}" title="${esc(x.list.verdict.text)}">${SHORTV[x.list.verdict.key][0]}</span>` : "—"}</td><td>${x.mine ? `<span class="chg ${x.mine.expR >= 0 ? "up" : "down"}">${R(x.mine.expR)}</span> <span class="muted">${x.mine.n}</span>` : '<span class="muted">none</span>'}</td><td>${repCell(x.rep)}${x.spread != null && x.spread * 100 > cfg.maxSpread ? ` <span class="pill fail" title="Bid-ask spread now">Spread ${(x.spread * 100).toFixed(1)}%</span>` : ""}</td><td><button class="btn small" type="button" data-plan="${hits.indexOf(x)}">Save plan</button></td></tr>`).join("") : '<tr><td colspan="13" class="muted">No setups on the last close.</td></tr>'}
+          <td>${x.list && x.list.n ? `<span class="chg ${x.list.expR >= 0 ? "up" : "down"}">${R(x.list.expR)}</span> <span class="muted">${x.list.n}</span> <span class="pill ${SHORTV[x.list.verdict.key][1]}" title="${esc(x.list.verdict.text)}">${SHORTV[x.list.verdict.key][0]}</span>` : "—"}</td><td>${x.mine ? `<span class="chg ${x.mine.expR >= 0 ? "up" : "down"}">${R(x.mine.expR)}</span> <span class="muted">${x.mine.n}</span>` : '<span class="muted">none</span>'}</td><td>${repCell(x.rep)}${x.spread != null && x.spread * 100 > cfg.maxSpread ? ` <span class="pill fail" title="Bid-ask spread now">Spread ${(x.spread * 100).toFixed(1)}%</span>` : ""}</td><td>${anCell(x.an, x.entry)}</td><td><button class="btn small" type="button" data-plan="${hits.indexOf(x)}">Save plan</button></td></tr>`).join("") : '<tr><td colspan="14" class="muted">No setups on the last close.</td></tr>'}
         </tbody></table></div>
-        <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
+        <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. Analysts: Robinhood's share of Buy ratings and the average price target against the entry; context, not a rule. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
       out.innerHTML = h + '<div id="pbDayBox" style="margin-top:18px"></div>';
       out.querySelectorAll("button[data-plan]").forEach(b => b.onclick = async () => {
         const x = scanHits[+b.dataset.plan]; b.disabled = true;
@@ -311,7 +329,7 @@
       const hi20 = x.hi20[i], hi252 = x.hi252[i] != null ? x.hi252[i] : Math.max(...b.map(z => z.h));
       const lo20 = Math.min(...b.slice(-20).map(z => z.l));
       const live = b.length > 260 ? P.setupsAt(b, x, i, liq()) : [];
-      const [rep, conc] = await Promise.all([nextRep(sym), dir > 0 ? concentration(sym, s.value).catch(() => null) : null]);
+      const [rep, conc, research] = await Promise.all([nextRep(sym), dir > 0 ? concentration(sym, s.value).catch(() => null) : null, researchFor(sym, b, x, last).catch(() => null)]);
       const thinNow = !P.liquid(b, x, i, liq());
       const [gname, gcls] = VERD[gateRes.verdict];
       out.innerHTML = `
@@ -325,6 +343,7 @@
         ${rep && P.earningsInside(rep, +cfg.hold) ? `<div class="banner bad" style="margin-top:12px"><b>Earnings ${esc(repText(rep))}</b>, ${rep.gapIn} session${rep.gapIn === 1 ? "" : "s"} away. A report can gap the price straight through the stop, so the loss can be several times ${s.shares ? esc(money(s.riskDollars)) : "the planned risk"}. Size down, wait for the report, or plan to exit before it.</div>` : `<p style="font-size:13px;margin:12px 0 0">Next earnings: ${esc(repText(rep))}.</p>`}
         ${thinNow ? `<div class="banner" style="margin-top:12px">${esc(sym)} is under your liquidity limits ($${esc(String(cfg.minPrice))} and $${esc(String(cfg.minDvM))} million a day). Expect wider spreads and slippage.</div>` : ""}
         ${conc && conc.hits.length ? `<div class="banner" style="margin-top:12px"><b>This would add to a bet you already hold.</b> Over 60 sessions ${esc(sym)} moved with ${esc(conc.hits.map(h => h.sym + " (" + h.c.toFixed(2) + ")").join(", "))}. Together with this trade that is ${(conc.together * 100).toFixed(0)}% of the account, acting more like one position than several.</div>` : conc ? `<p class="muted" style="font-size:12px;margin:8px 0 0">None of your ${conc.pos.length} holdings moved closely with ${esc(sym)} (correlation under 0.70 over 60 sessions).</p>` : ""}
+        ${research ? researchHtml(research, last) : ""}
         <div class="row" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn small primary" type="button" id="pbSave" ${s.shares ? "" : "disabled"}>Save this plan</button><span class="muted" style="font-size:12px">Saved plans let Manage track the trade and My edge check whether you kept the stop.</span></div>
         <p class="muted" style="font-size:12px;margin:8px 0 0">A stop under 1 ATR is often hit by ordinary noise. Less than 2R of room to a recent high leaves little reward for the risk.</p>`;
       const sv = out.querySelector("#pbSave");
@@ -332,6 +351,30 @@
     } catch (e) { fail(out, e); }
   }
 
+  /* Research for one symbol from both brokers: analyst ratings and targets, Webull's large-order money flow and unusual
+     activity, and Robinhood's own ATR on the same closed bar as a check of the desk's arithmetic. Context, not rules. */
+  async function researchFor(sym, b, x, last) {
+    const lastD = b[b.length - 1].d;
+    const [rh, w, flow, un, rAtr] = await Promise.all([
+      D.rhAnalyst([sym]).then(m => m[sym]).catch(() => null), D.wb.analyst(sym).catch(() => null), D.wb.capitalFlow(sym, 5).catch(() => null),
+      D.wb.unusual(sym, 8).catch(() => null), D.rhIndicator(sym, "atr", 14, lastD).catch(() => null)]);
+    return { sym, rh, w, flow, un, atr: { desk: x.atr[b.length - 1], rh: rAtr, date: lastD } };
+  }
+  const bigMoney = v => v == null ? "—" : (v < 0 ? "−$" : "+$") + (Math.abs(v) >= 1e9 ? (Math.abs(v) / 1e9).toFixed(2) + "B" : Math.abs(v) >= 1e6 ? (Math.abs(v) / 1e6).toFixed(1) + "M" : Math.abs(v) >= 1e3 ? (Math.abs(v) / 1e3).toFixed(0) + "K" : Math.abs(v).toFixed(0));
+  const ALERT = t => String(t || "").toLowerCase().replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+  function researchHtml(r, last) {
+    const an = (name, a) => !a || !(a.n > 0) && a.mean == null ? `<tr><td>${name}</td><td colspan="4" class="muted">No coverage</td></tr>` :
+      `<tr><td>${name}${a.asOf ? ` <span class="muted">${esc(a.asOf)}</span>` : ""}</td><td>${a.n != null ? a.n : "—"}</td><td>${a.n ? Math.round(a.buy / a.n * 100) + "% buy · " + a.hold + " hold · " + a.sell + " sell" : "—"}</td><td>${px(a.mean)}${a.median != null ? ` <span class="muted">median ${px(a.median)}</span>` : ""}</td><td>${a.mean ? `<span class="chg ${a.mean >= last ? "up" : "down"}">${pct(a.mean / last - 1)}</span> <span class="muted">range ${px(a.low)}–${px(a.high)}</span>` : "—"}</td></tr>`;
+    const f = r.flow, share = f && f.total ? f.large / (f.total / 2) : null;
+    const atrOk = r.atr.rh != null && r.atr.desk != null ? Math.abs(r.atr.rh / r.atr.desk - 1) : null;
+    return `<div class="panel" style="margin-top:12px"><div class="ph"><h2 style="font-size:15px">Research on ${esc(r.sym)}</h2><span class="eyebrow">Robinhood and Webull · context, not rules</span></div>
+      <div class="scroll"><table class="dt"><thead><tr><th>Analysts</th><th>Ratings</th><th>Split</th><th>Average target</th><th>Vs price now</th></tr></thead><tbody>${an("Robinhood", r.rh)}${D.wb.state === "off" ? `<tr><td>Webull</td><td colspan="4" class="muted">${esc(D.wb.why())}</td></tr>` : an("Webull", r.w)}</tbody></table></div>
+      <div class="pb" style="font-size:13px">
+        ${f ? `<p style="margin:0 0 6px"><b>Large-order money flow, last ${f.days} sessions (Webull):</b> <span class="chg ${f.large >= 0 ? "up" : "down"}">${bigMoney(f.large)}</span> net${share != null ? ` (${(Math.abs(share) * 100).toFixed(1)}% of the dollar volume)` : ""}; medium orders ${bigMoney(f.medium)}, small ${bigMoney(f.small)}. By day: ${f.daily.map(d => `<span class="chg ${d.large >= 0 ? "up" : "down"}">${bigMoney(d.large)}</span>`).join(" · ")}.</p>` : ""}
+        ${r.un && r.un.length ? `<p style="margin:0 0 6px"><b>Unusual activity (Webull, newest first):</b> ${r.un.slice(0, 6).map(u => esc(ALERT(u.type)) + ` <span class="muted">${esc(E.ny(u.t).date.slice(5))}</span>`).join(" · ")}.</p>` : r.un ? '<p class="muted" style="margin:0 0 6px">No unusual-activity alerts from Webull in the last 90 days.</p>' : ""}
+        <p class="muted" style="margin:0">Arithmetic check: ATR 14 on ${esc(r.atr.date)} is ${px(r.atr.desk)} here and ${px(r.atr.rh)} from Robinhood's own indicator${atrOk == null ? "." : atrOk < 0.01 ? ": they agree." : ` (${(atrOk * 100).toFixed(1)}% apart; check for a missing or placeholder bar).`} Money flow sorts trades by size into large, medium and small; it is Webull's estimate and is not used by any rule. Analyst targets lag the price and are often revised after it moves.</p>
+      </div></div>`;
+  }
   async function renderPlans(box) {
     const el = box.querySelector("#pbPlans"); if (!el) return;
     const all = (await Plans.all()).sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -352,7 +395,7 @@
   async function manageRun(box) {
     const out = box.querySelector("#pbMgOut");
     try {
-      await account(); if (!acct) throw new Error("No active brokerage account came back.");
+      await account(); await webull(); if (!acct && !wbAcct) throw new Error("No active brokerage account came back.");
       const pos = await positions();
       if (!pos.length) { out.innerHTML = '<p class="muted">No open long stock positions.</p>'; return; }
       busy(out, "Reading history and plans…");
@@ -362,13 +405,14 @@
       const since = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10); let raw = [], cursor = null, pages = 0;
       do { const d = await call("get_equity_orders", Object.assign({ account_number: acct, state: "filled", created_at_gte: since }, cursor ? { cursor } : {}), 120000); raw = raw.concat((d && d.orders) || []); cursor = d && d.next ? d.next : null; pages++; } while (cursor && pages < 40);
       const orders = raw.filter(o => o.symbol && +o.cumulative_quantity > 0 && +o.average_price > 0).map(o => { const ex = (o.executions || []).map(x => Date.parse(x.timestamp)).filter(isFinite); const t = ex.length ? Math.max(...ex) : Date.parse(o.last_transaction_at || o.created_at); return { symbol: o.symbol, side: o.side, qty: +o.cumulative_quantity, price: +o.average_price, t }; }).filter(o => isFinite(o.t));
-      const openLots = A.roundTrips(orders).open;
+      const openLots = A.roundTrips(orders).open.map(l => Object.assign(l, { broker: "rh" }));
+      if (wbAcct && pos.some(p => p.broker === "wb")) { const wo = await D.wb.orders(wbAcct.account_id, Date.now() - 730 * 86400000).catch(() => []); A.roundTrips(wo).open.forEach(l => openLots.push(Object.assign(l, { broker: "wb" }))); }
       const reps = {}; await Promise.all(syms.map(async sy => { reps[sy] = await nextRep(sy); }));
-      const n = nyNow(), rows = [];
+      const n = nyNow(), rows = [], noHist = [];
       for (const p of pos) {
-        const b = bars[p.sym] || [], last = D.lastPrice(q[p.sym]) || (b.length ? b[b.length - 1].c : null); if (!b.length || last == null) continue;
+        const b = bars[p.sym] || [], last = D.lastPrice(q[p.sym]) || p.last || (b.length ? b[b.length - 1].c : null); if (!b.length || last == null) { noHist.push(p.sym + " (" + (BROKER[p.broker] || "") + ")"); continue; }
         const pl = plans.filter(z => z.sym === p.sym && z.status !== "closed" && (z.side || "long") === "long").sort((a, c) => a.date < c.date ? 1 : -1)[0];
-        const lots = openLots.filter(l => l.symbol === p.sym).sort((a, c) => a.t - c.t);
+        const lots = openLots.filter(l => l.symbol === p.sym && l.broker === p.broker).sort((a, c) => a.t - c.t);
         const date = pl ? pl.date : lots.length ? E.ny(lots[0].t).date : b[Math.max(0, b.length - 20)].d;
         const A14 = E.atr(b, 14), a = A14[A14.length - 1];
         const entry = pl ? pl.entry : p.avg, stop = pl ? pl.stop : (entry != null && a != null ? entry - 2 * a : null);
@@ -376,6 +420,8 @@
         const rep = reps[p.sym];
         if (m && rep && P.earningsInside(rep, 5)) m.todo.push({ k: "earn", text: `Earnings ${repText(rep)}: decide before the report whether to hold through it` });
         if (m && !pl) m.todo.push({ k: "noplan", text: "No saved plan: stop assumed at 2 ATR under your cost" });
+        const rhLast = D.lastPrice(q[p.sym]);
+        if (m && p.broker === "wb" && p.last && rhLast && Math.abs(rhLast / p.last - 1) > 0.1) m.todo.push({ k: "mismatch", text: `Webull shows ${px(p.last)} but Robinhood ${px(rhLast)} for ${p.sym}: check it is the same company before trusting this row` });
         rows.push({ p, pl, last, entry, stop, m, date, rep, value: last * p.qty });
       }
       rows.sort((a, c) => (c.m ? c.m.todo.filter(t => t.k !== "noplan").length : 0) - (a.m ? a.m.todo.filter(t => t.k !== "noplan").length : 0) || c.value - a.value);
@@ -383,11 +429,11 @@
       out.innerHTML = `
         <p class="verdict-line" style="font-size:19px">${esc(`${rows.length} positions. ${urgent ? urgent + " at or under the trailing stop. " : "None at its stop. "}${halves ? halves + " up 1R or more with half still on." : ""}`)}</p>
         <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Shares</th><th>Entry</th><th>Last</th><th>Now</th><th>Starting stop</th><th>Trailing stop</th><th>Stop in R</th><th>Held</th><th>Earnings</th><th>What to do</th><th></th></tr></thead><tbody>
-        ${rows.map((r, k) => `<tr class="clickable" tabindex="0" data-sym="${esc(r.p.sym)}"><td><b>${esc(r.p.sym)}</b>${r.pl ? "" : ' <span class="muted" title="No saved plan">*</span>'}</td><td>${r.p.qty % 1 ? r.p.qty.toFixed(4) : int(r.p.qty)}</td><td>${px(r.entry)}</td><td>${px(r.last)}</td><td class="chg ${r.m && r.m.R >= 0 ? "up" : "down"}">${r.m ? R(r.m.R) : "—"}</td><td>${px(r.stop)}</td><td>${r.m ? px(r.m.stop) : "—"}</td><td class="chg ${r.m && r.m.stopR >= 0 ? "up" : "down"}">${r.m ? R(r.m.stopR) : "—"}</td><td>${r.m && r.m.held != null ? r.m.held + (r.pl && r.pl.hold ? " / " + r.pl.hold : "") : "—"}</td><td>${repCell(r.rep)}</td>
+        ${rows.map((r, k) => `<tr class="clickable" tabindex="0" data-sym="${esc(r.p.sym)}"><td><b>${esc(r.p.sym)}</b>${r.pl ? "" : ' <span class="muted" title="No saved plan">*</span>'}<span class="note" style="display:block;font-size:11px;color:var(--ink-3)">${BROKER[r.p.broker] || ""}</span></td><td>${r.p.qty % 1 ? r.p.qty.toFixed(4) : int(r.p.qty)}</td><td>${px(r.entry)}</td><td>${px(r.last)}</td><td class="chg ${r.m && r.m.R >= 0 ? "up" : "down"}">${r.m ? R(r.m.R) : "—"}</td><td>${px(r.stop)}</td><td>${r.m ? px(r.m.stop) : "—"}</td><td class="chg ${r.m && r.m.stopR >= 0 ? "up" : "down"}">${r.m ? R(r.m.stopR) : "—"}</td><td>${r.m && r.m.held != null ? r.m.held + (r.pl && r.pl.hold ? " / " + r.pl.hold : "") : "—"}</td><td>${repCell(r.rep)}</td>
           <td style="white-space:normal;min-width:220px;text-align:start">${r.m && r.m.todo.length ? r.m.todo.map(t => `<div class="${t.k === "exit" ? "chg down" : t.k === "noplan" ? "muted" : ""}" style="font-size:13px">${esc(t.text)}</div>`).join("") : '<span class="muted">Hold; nothing due</span>'}</td>
           <td style="white-space:nowrap">${r.pl ? (r.pl.halfTaken ? "" : `<button class="btn small" type="button" data-half="${esc(r.pl.id)}">Half taken</button>`) : `<button class="btn small" type="button" data-mkplan="${k}">Save plan</button>`}</td></tr>`).join("")}
         </tbody></table></div>
-        <div class="pb muted" style="font-size:12px;padding-inline:0">Now and Stop in R are in R (a stop at +0.50R locks in half the risk as profit): 1R is the distance from entry to the starting stop. The trailing stop is the highest high since entry minus 3 ATR, never under the starting stop, and at least break-even once half is taken. That is the "half off at 1R, trail the rest" exit from Edge lab part 1, which you can test on your own names. A star marks a holding without a saved plan: its entry is your average cost and its starting stop is assumed. Long stock positions only.</div>`;
+        <div class="pb muted" style="font-size:12px;padding-inline:0">Now and Stop in R are in R (a stop at +0.50R locks in half the risk as profit): 1R is the distance from entry to the starting stop. The trailing stop is the highest high since entry minus 3 ATR, never under the starting stop, and at least break-even once half is taken. That is the "half off at 1R, trail the rest" exit from Edge lab part 1, which you can test on your own names. A star marks a holding without a saved plan: its entry is your average cost and its starting stop is assumed. Long stock positions only, from Robinhood${wbAcct ? " and Webull" : ""}.${noHist.length ? " Not shown, because Robinhood has no daily history for them: " + esc(noHist.join(", ")) + "." : ""}</div>`;
       out.querySelectorAll("button[data-half]").forEach(bt => bt.onclick = async () => { bt.disabled = true; await Plans.update(bt.dataset.half, { halfTaken: true }).catch(() => {}); manageRun(box); });
       out.querySelectorAll("button[data-mkplan]").forEach(bt => bt.onclick = async () => { const r = rows[+bt.dataset.mkplan]; bt.disabled = true; try { await Plans.add({ sym: r.p.sym, side: "long", entry: +(+r.entry).toFixed(2), stop: +(+r.stop).toFixed(2), target: +(r.entry + 2 * (r.entry - r.stop)).toFixed(2), shares: r.p.qty, setup: null, gate: null, date: r.date, hold: +cfg.hold }); manageRun(box); } catch (e) { bt.textContent = "Not saved"; } });
     } catch (e) { fail(out, e); }
@@ -407,7 +453,11 @@
       const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10); let raw = [], cursor = null, pages = 0;
       do { const d = await call("get_equity_orders", Object.assign({ account_number: acct, state: "filled", created_at_gte: since }, cursor ? { cursor } : {}), 120000); raw = raw.concat((d && d.orders) || []); cursor = d && d.next ? d.next : null; pages++; } while (cursor && pages < 40);
       const orders = raw.filter(o => o.symbol && +o.cumulative_quantity > 0 && +o.average_price > 0 && ((o.executions || []).some(x => isFinite(Date.parse(x.timestamp))) || isFinite(Date.parse(o.last_transaction_at || o.created_at)))).map(o => { const ex = (o.executions || []).map(x => Date.parse(x.timestamp)).filter(isFinite); const t = ex.length ? Math.max(...ex) : Date.parse(o.last_transaction_at || o.created_at); const n = E.ny(t); return { symbol: o.symbol, side: o.side, qty: +o.cumulative_quantity, price: +o.average_price, fees: +o.fees || 0, t, ext: n.min < 570 || n.min >= 960 }; });
-      const { trips, unmatched, open } = A.roundTrips(orders);
+      const rhR = A.roundTrips(orders); rhR.trips.forEach(t => { t.broker = "rh"; });
+      await webull();
+      let wbR = { trips: [], unmatched: [], open: [] };
+      if (wbAcct) { busy(out, "Reading Webull orders…"); const wo = await D.wb.orders(wbAcct.account_id, Date.now() - days * 86400000).catch(() => []); wbR = A.roundTrips(wo); wbR.trips.forEach(t => { t.broker = "wb"; }); }
+      const trips = rhR.trips.concat(wbR.trips), unmatched = rhR.unmatched.concat(wbR.unmatched), open = rhR.open.concat(wbR.open);
       if (!trips.length) { out.innerHTML = '<p class="muted">No completed round trips in this period.</p>'; btn.disabled = false; return; }
       const m = await macro(); const syms = [...new Set(trips.map(t => t.symbol))];
       const bars = await D.dailyBars(syms, days + 420, (i, n) => busy(out, `Reading history ${i} of ${n}…`));
@@ -470,7 +520,7 @@
     async mount(r) {
       root = r; if (D.needsLive(root)) return; shell();
       try {
-        await D.loadLists(); const sel = root.querySelector("#pbList"); D.fillLists(sel);
+        await D.loadLists(); const sel = root.querySelector("#pbList"); D.fillLists(sel); await D.addListSources(sel).catch(() => {});
         if (cfg.listId && [...sel.options].some(o => o.value === cfg.listId)) sel.value = cfg.listId; else { const first = [...sel.options].find(o => /^first list$/i.test(o.textContent)) || sel.options[0]; if (first) sel.value = first.value; cfg.listId = sel.value; saveCfg(); }
       } catch (e) {}
       show();

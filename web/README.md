@@ -7,6 +7,7 @@ page.src.html        the page: Standard, Vela and the desk shell (engine.js is i
 engine.js            the rule engine (Standard, candle break, backtests, Edge lab)
 apps/                one file per desk: playbook, book, market, congress, pairs, analyst, filings, earnings
 apps/playbook-core.js  Playbook rules, pure functions; the phone app uses the same file
+apps/brokers.js      Webull (accounts, positions, fills, watchlists, analysts, money flow, unusual activity) and Robinhood extras (analyst ratings, saved screeners, technical indicators)
 tests/               node web/tests/playbook.js and node web/tests/analytics.js
 build.js             writes index.html
 ```
@@ -24,8 +25,20 @@ build.js             writes index.html
 
 Saved plans are kept in the page's private database (`data/users/<you>`): only you can read them. Where that is not available they are kept in the browser.
 
+## Webull and research sources
+
+With the Webull connector allowed for the page (read-only tools only):
+
+- Today shows the Webull account; sizing and the daily loss limit can use Robinhood, Webull or both.
+- Manage lists Webull holdings next to Robinhood's, with entry dates from Webull fills, and flags a price that differs between the brokers by over 10%.
+- My edge adds Webull round trips and compares the two brokers.
+- The list picker offers Webull watchlists and your saved Robinhood screeners (run live).
+- The Scanner shows Robinhood's analyst consensus for each setup. Size a trade shows both brokers' analyst ratings and targets, Webull's large-order money flow and unusual-activity alerts, and checks the desk's ATR against Robinhood's own indicator. These are context; no rule uses them.
+
+Without Webull the desk works as before and says Webull is unavailable.
+
 ## Publish
 ```bash
 node web/build.js
 ```
-Then publish `web/index.html` with `web/apps/*.js` as its files, to the existing artifact, keeping its capabilities (Robinhood read tools, sample, db, user).
+Then publish `web/index.html` with `web/apps/*.js` as its files, to the existing artifact, keeping its capabilities (Robinhood and Webull read tools, sample, db, user).
