@@ -8,9 +8,11 @@ import { FilingsDesk } from "./desks/FilingsDesk";
 import { EarningsDesk } from "./desks/EarningsDesk";
 import { AnalystDesk } from "./desks/AnalystDesk";
 import { BookDesk } from "./desks/BookDesk";
+import { PlaybookDesk } from "./desks/PlaybookDesk";
 
-type Desk = "book" | "market" | "pairs" | "analyst" | "filings" | "earnings";
+type Desk = "playbook" | "book" | "market" | "pairs" | "analyst" | "filings" | "earnings";
 const LIST: [Desk, string, string][] = [
+  ["playbook", "Playbook", "Market gate, swing setups sized by risk, and their record"],
   ["book", "Book", "Journal and risk from your Robinhood activity CSV"],
   ["market", "Market", "Regime, breadth, sectors and the VIX"],
   ["pairs", "Pairs", "Stocks that move together, tested out of sample"],
@@ -28,7 +30,7 @@ export function DesksScreen({ theme, settings }: { theme: Theme; settings: Setti
         <Pressable onPress={() => setDesk(null)} accessibilityRole="button" accessibilityLabel="Back to desks" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.rule, backgroundColor: theme.sheet }}>
           <Text style={{ color: theme.teal, fontWeight: "600" }}>‹ Desks  <Text style={{ color: theme.ink }}>{title}</Text></Text>
         </Pressable>
-        {desk === "book" ? <BookDesk theme={theme} settings={settings} /> : desk === "market" ? <MarketDesk theme={theme} settings={settings} /> : desk === "pairs" ? <PairsDesk theme={theme} settings={settings} />
+        {desk === "playbook" ? <PlaybookDesk theme={theme} settings={settings} /> : desk === "book" ? <BookDesk theme={theme} settings={settings} /> : desk === "market" ? <MarketDesk theme={theme} settings={settings} /> : desk === "pairs" ? <PairsDesk theme={theme} settings={settings} />
           : desk === "analyst" ? <AnalystDesk theme={theme} settings={settings} /> : desk === "filings" ? <FilingsDesk theme={theme} settings={settings} /> : <EarningsDesk theme={theme} settings={settings} />}
       </View>);
   }

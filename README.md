@@ -5,7 +5,9 @@ A personal iPhone and Android version of the Standard & Vela desk. It applies th
 ```
 app/      Expo (React Native) app for iOS and Android
   src/engine/engine.js   the rule engine, shared with the web desk
+  src/engine/playbook.js the Playbook rules, the same file as web/apps/playbook-core.js
 worker/   Cloudflare Worker that holds the market-data keys
+web/      source of the web desk (the claude.ai page on Robinhood data); see web/README.md
 tests/    engine tests (run with npm test at the root)
 ```
 
@@ -83,10 +85,11 @@ The Android app ID is `com.nalqarni2020.standardvela`. The kids' apps are Little
 
 ## Desks
 
-The Desks tab holds six more screens. Their data sources differ from the web desk, which reads Robinhood:
+The Desks tab holds seven more screens. Their data sources differ from the web desk, which reads Robinhood:
 
 | Desk | Phone data |
 |---|---|
+| Playbook | Alpaca daily prices for your watchlist, the VIX from the St. Louis Fed. Swing setups, the market gate and the setups' record; day setups, Manage and saved plans are on the web desk |
 | Book | A Robinhood account activity CSV you open on the phone. The file never leaves it; only tickers go to your proxy. |
 | Market | Alpaca prices for index and sector funds, your watchlist for breadth, the VIX from the St. Louis Fed |
 | Pairs | Alpaca daily prices for your watchlist or typed tickers |
