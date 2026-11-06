@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 5); assert(ev.trials === 20);
+  assert.equal(ev.rows.length, 6); assert(ev.trials === 20);
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -205,6 +205,28 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   const tr = P.simulate(b, x, { cost: 0 }).filter(t => t.id === 'hp');
   assert(tr.length >= 1); assert(['Trend turned', 'Time', 'Stop'].includes(tr[0].why));
   assert(tr.some(t => t.why === 'Trend turned' || t.why === 'Time'));
+  ok();
+}
+
+// base breakout: decline, tight 30-session base, first close above it on volume; and the cases that must not fire
+{
+  const mk = (opts) => { opts = Object.assign({ fall: 0.45, width: 0.12, vol: 3, already: false }, opts);
+    const b = []; let i = 0;
+    for (; i < 230; i++) { const c = 100 - (100 * opts.fall) * (i / 229); b.push(Object.assign(day(i), { o: c, h: c * 1.01, l: c * 0.99, c, v: 1e6 })); }
+    const lo = 100 * (1 - opts.fall), hi = lo * (1 + opts.width);
+    for (; i < 290; i++) { const c = lo + (hi - lo) * (0.3 + 0.4 * ((i % 6) / 5)); b.push(Object.assign(day(i), { o: c, h: Math.min(c * 1.01, hi), l: Math.max(c * 0.99, lo), c, v: 1e6 })); }
+    if (opts.already) b[i - 3] = Object.assign(day(i - 3), { o: hi, h: hi * 1.03, l: hi * 0.99, c: hi * 1.02, v: 1e6 });
+    b.push(Object.assign(day(i), { o: hi, h: hi * 1.06, l: hi * 0.995, c: hi * 1.05, v: 1e6 * opts.vol }));
+    return b; };
+  const fires = b => P.setupsAt(b, P.prep(b), b.length - 1).find(z => z.id === 'base');
+  const b = mk(), s = fires(b);
+  assert(s, 'base breakout found'); near(s.entry, b[b.length - 1].h + 0.01);
+  { const k = b.length - 1; let bh = -Infinity, bl = Infinity; for (let j = k - 30; j < k; j++) { bh = Math.max(bh, b[j].h); bl = Math.min(bl, b[j].l); }
+    const mm = bh + (bh - bl); near(s.target, mm > s.entry + 0.5 * s.risk ? mm : s.entry + 2 * s.risk, 1e-9); }
+  assert(s.stop < s.entry && s.risk <= 2.5 * P.prep(b).atr[b.length - 1] + 1e-9);
+  assert(!fires(mk({ fall: 0.15 })), 'no setup without a real decline');
+  assert(!fires(mk({ fall: 0.6, width: 1.0 })), 'no setup when the range is too wide'); assert(fires(mk({ fall: 0.6, width: 0.3 })), 'a 9% wide base after a 54% fall does fire');
+  assert(!fires(mk({ vol: 1.1 })), 'no setup without heavy volume');
   ok();
 }
 console.log('playbook tests passed:', n);

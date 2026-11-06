@@ -151,6 +151,8 @@
       rule: "In the last 10 sessions, an opening gap of 4% or more on twice the 50-day volume; no close since under that day's low and the price still over the pre-gap close. Buy above the day's high; stop under the gap day's low. Often an earnings day." },
     { id: "volume", label: "Volume shock on an up day", short: "Volume shock", cite: "Gervais, Kaniel and Mingelgrin (2001)",
       rule: "Volume at least twice the 50-day average, an up close, closing in the upper half of the day's range. Buy above the high; stop under the low." },
+    { id: "base", label: "Base breakout after a decline", short: "Base breakout", cite: "Accumulation and breakout (Wyckoff; Weinstein, 1988); measured-move target; tested here, not assumed",
+      rule: "The stock fell at least 30% (the base's low against the highest price in the year before the base), then spent 30 sessions inside a range no wider than 25%; today is the first close above the top of that range, on at least 1.5 times the 50-day volume. Buy above the day's high; stop under the base low; target the base top plus the base height." },
     { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
       rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
@@ -180,6 +182,13 @@
       break;   // only the most recent qualifying gap counts
     }
     if (x.v50[i - 1] != null && b[i].v >= 2 * x.v50[i - 1] && c > b[i - 1].c && b[i].h > b[i].l && (c - b[i].l) >= 0.5 * (b[i].h - b[i].l)) { const entry = b[i].h + 0.01; mk("volume", entry, b[i].l - 0.01, null); }
+    // base breakout: a decline, a 30-session rectangle, and the first close above it on heavy volume
+    if (i >= 282 && x.v50[i - 1] != null) {
+      let H = -Infinity, bh = -Infinity, bl = Infinity;
+      for (let k = i - 282; k <= i - 31; k++) H = Math.max(H, b[k].h);
+      for (let k = i - 30; k <= i - 1; k++) { bh = Math.max(bh, b[k].h); bl = Math.min(bl, b[k].l); }
+      if (bl > 0 && bl <= 0.7 * H && (bh - bl) / bl <= 0.25 && c > bh && b[i - 1].c <= bh && b[i].v >= 1.5 * x.v50[i - 1]) { const entry = b[i].h + 0.01; mk("base", entry, bl - 0.01, bh + (bh - bl)); }
+    }
     if (x.hpF && x.hpF[i] != null && x.hpF[i - 1] != null && x.hpF[i] > x.hpS[i] && x.hpF[i - 1] <= x.hpS[i - 1]) { const entry = b[i].h + 0.01; mk("hp", entry, entry - 2 * a, null); }
     return out;
   }
