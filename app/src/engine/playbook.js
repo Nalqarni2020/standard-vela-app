@@ -461,6 +461,77 @@
     return out;
   }
 
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage };
+  /* ---------- Movers: check a ranking's numbers, grade liquidity, and test what such moves did next ---------- */
+  /* Does the broker's reported move match the price history? `k` sessions back from `price`; `todayInBars` says whether
+     the last daily bar is the same session as `price`. Reverse splits, ticker changes and new listings fail this. */
+  function checkMove(b, price, reported, k, todayInBars) {
+    const n = b.length, ref = todayInBars ? n - 1 - k : n - k;
+    if (!(price > 0) || reported == null || !isFinite(reported) || ref < 0 || !(b[ref] && b[ref].c > 0)) return { ok: null, hist: null };
+    const hist = price / b[ref].c - 1;
+    return { ok: Math.abs(hist - reported) <= Math.max(0.03, 0.25 * Math.abs(reported)), hist };
+  }
+  /* Trading liquidity: price, 20-day dollar volume and the live spread against your limits, and how big your position
+     would be next to a day's trading. Deep: $100M+ a day and a spread of 0.1% or less; good: $20M+ and 0.3% or less. */
+  function liquidityGrade(o) {
+    const why = [];
+    if (o.price != null && o.price < (o.minPrice || 0)) why.push("under $" + o.minPrice);
+    if (o.dv20 == null) why.push("no volume history");
+    else if (o.dv20 < (o.minDollarVol || 0)) why.push("under $" + Math.round(o.minDollarVol / 1e6) + "M a day");
+    if (o.spread != null && o.maxSpread != null && o.spread > o.maxSpread) why.push("spread " + (o.spread * 100).toFixed(2) + "%");
+    const share = o.position > 0 && o.dv20 > 0 ? o.position / o.dv20 : null;
+    if (share != null && share > 0.01) why.push("your size is " + (share * 100).toFixed(1) + "% of a day's trading");
+    const sp = o.spread == null ? 0 : o.spread;
+    const key = why.length ? (share != null && share > 0.01 && why.length === 1 ? "thin" : "no") : o.dv20 >= 1e8 && sp <= 0.001 ? "deep" : o.dv20 >= 2e7 && sp <= 0.003 ? "good" : "thin";
+    return { key, label: { deep: "Deep", good: "Good", thin: "Thin", no: "Avoid" }[key], why, share };
+  }
+  const MOVES = [
+    { id: "g5", label: "5-day gainer (+15% or more)", dir: 1 },
+    { id: "l5", label: "5-day loser (−15% or worse)", dir: -1 },
+    { id: "gu", label: "Gap up (opens 4%+ above the close)", dir: 1 },
+    { id: "gd", label: "Gap down (opens 4%+ below the close)", dir: -1 },
+    { id: "vu", label: "Volume leader, up day (3× volume)", dir: 1 },
+    { id: "vd", label: "Volume leader, down day (3× volume)", dir: -1 },
+  ];
+  /* Event study on the list's history: after each kind of move (counted at most once a week per stock), buy the next
+     open and measure the return to the close 1, 5 and 10 sessions later, net of costs, against the same stocks' average
+     5-day return over all liquid days. Each kind is split in two: on heavy volume or not (5-day moves); held or faded
+     (gaps, by the gap day's close against its open); and for volume leaders, closing in the top or bottom half of the range. */
+  function moverStudy(sets, o) {
+    o = o || {}; const cost = o.cost == null ? 0.0005 : o.cost, H = [1, 5, 10];
+    const ev = {}; MOVES.forEach(m => { ev[m.id] = []; });
+    let baseSum = 0, baseN = 0;
+    for (const s of sets) {
+      const b = s.bars, x = s.x || prep(b), last = {};
+      for (let i = 55; i < b.length - 11; i++) {
+        if (x.v50[i - 1] == null || !liquid(b, x, i, o.liq)) continue;
+        const e = b[i + 1].o; if (!(e > 0)) continue;
+        const fw = H.map(h => b[i + h].c / e - 1 - 2 * cost);
+        baseSum += fw[1]; baseN++;
+        const r5 = b[i].c / b[i - 5].c - 1, gap = b[i].o / b[i - 1].c - 1, vx = b[i].v / x.v50[i - 1];
+        const v5 = (b[i].v + b[i - 1].v + b[i - 2].v + b[i - 3].v + b[i - 4].v) / 5 >= 1.5 * x.v50[i - 1];
+        const upper = b[i].h > b[i].l ? (b[i].c - b[i].l) / (b[i].h - b[i].l) >= 0.5 : true;
+        const hit = (id, split) => { if (last[id] != null && i - last[id] < 5) return; last[id] = i; ev[id].push({ fw, split, sym: s.sym, d: b[i].d }); };
+        if (r5 >= 0.15) hit("g5", v5); else if (r5 <= -0.15) hit("l5", v5);
+        if (gap >= 0.04) hit("gu", b[i].c >= b[i].o); else if (gap <= -0.04) hit("gd", b[i].c <= b[i].o);
+        if (vx >= 3) { if (b[i].c > b[i - 1].c) hit("vu", upper); else if (b[i].c < b[i - 1].c) hit("vd", !upper); }
+      }
+    }
+    const base = baseN ? baseSum / baseN : 0;
+    const stat = a => { const n = a.length; if (!n) return { n: 0, mean: null, win: null, t: null }; const m = a.reduce((s, v) => s + v, 0) / n; const sd = n > 1 ? Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (n - 1)) : 0; return { n, mean: m, win: a.filter(v => v > 0).length / n, t: sd > 0 ? m / (sd / Math.sqrt(n)) : null }; };
+    const SPLIT = { g5: ["On heavy volume", "On light volume"], l5: ["On heavy volume", "On light volume"], gu: ["Gap held (closed above the open)", "Gap faded"], gd: ["Kept falling (closed below the open)", "Recovered from the open"], vu: ["Closed near the high", "Closed near the low"], vd: ["Closed near the low", "Closed near the high"] };
+    const rows = MOVES.map(m => {
+      const a = ev[m.id], h = {}; H.forEach((hh, k) => { h[hh] = stat(a.map(z => z.fw[k])); });
+      const ex = stat(a.map(z => z.fw[1] - base));
+      const sp = [true, false].map((v, k) => { const z = a.filter(q => q.split === v); const st = stat(z.map(q => q.fw[1] - base)); return { label: SPLIT[m.id][k], n: st.n, excess5: st.mean, win5: z.length ? z.filter(q => q.fw[1] > 0).length / z.length : null, t: st.t }; });
+      let verdict;
+      if (ex.n < 30) verdict = { key: "thin", text: "Too few cases on this list to say." };
+      else if (ex.t != null && Math.abs(ex.t) >= 2 && Math.abs(ex.mean) >= 0.005) verdict = Math.sign(ex.mean) === m.dir ? { key: "cont", text: "Kept going: the next week beat a normal week in the same direction." } : { key: "rev", text: "Reversed: the next week went against the move." };
+      else verdict = { key: "none", text: "No reliable edge: the next week looked like a normal week." };
+      return { id: m.id, label: m.label, dir: m.dir, n: a.length, h, excess5: ex.mean, t: ex.t, split: sp, verdict, recent: a.slice().sort((p, q) => q.d < p.d ? -1 : 1).slice(0, 3).map(z => z.sym + " " + z.d) };
+    });
+    return { rows, base, days: baseN, names: sets.length };
+  }
+
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);

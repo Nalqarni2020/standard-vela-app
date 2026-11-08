@@ -274,4 +274,40 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert.equal(P.bottomWatch(calm, vix, null).state, 'none');
   ok();
 }
+
+// movers: the reported move must match the history; a reverse split does not
+{
+  const b = Array.from({ length: 40 }, (_, i) => Object.assign(day(i), { o: 10, h: 10, l: 10, c: i < 35 ? 10 : 12, v: 1e6 }));
+  let c = P.checkMove(b, 12, 0.2, 5, true); assert.equal(c.ok, true); near(c.hist, 0.2);
+  c = P.checkMove(b, 15.6, 0.3, 5, false); near(c.hist, 0.3); assert.equal(c.ok, true);   // today's bar not in yet: 5 back from the last bar + 1
+  assert.equal(P.checkMove(b, 12, 49.7, 5, true).ok, false, 'a +4970% from a reverse split fails');
+  assert.equal(P.checkMove(b, 12, null, 5, true).ok, null);
+  ok();
+}
+// liquidity grade
+{
+  const L = o => P.liquidityGrade(Object.assign({ minPrice: 5, minDollarVol: 5e6, maxSpread: 0.005 }, o));
+  assert.equal(L({ price: 100, dv20: 5e8, spread: 0.0005 }).key, 'deep');
+  assert.equal(L({ price: 100, dv20: 5e7, spread: 0.002 }).key, 'good');
+  assert.equal(L({ price: 100, dv20: 8e6, spread: null }).key, 'thin');
+  assert.equal(L({ price: 3, dv20: 5e8 }).key, 'no');
+  assert.equal(L({ price: 50, dv20: 5e8, spread: 0.01 }).key, 'no');
+  const t = L({ price: 50, dv20: 6e6, position: 1.2e5 }); assert.equal(t.key, 'thin'); near(t.share, 0.02);
+  ok();
+}
+// mover study: a stock that gaps up 5% every 20 days and then drifts up 1% a day for 5 days "keeps going"
+{
+  const b = []; let p = 50;
+  for (let i = 0; i < 700; i++) {
+    const ph = i % 20, prev = p;
+    let o = prev; if (ph === 0 && i > 60) { o = prev * 1.05; p = o * 1.001; } else if (ph >= 1 && ph <= 5 && i > 60) p = prev * 1.01; else p = prev * (ph % 2 ? 0.9975 : 0.998);
+    b.push(Object.assign(day(i), { o, h: Math.max(o, p) * 1.002, l: Math.min(o, p) * 0.998, c: p, v: ph === 0 && i > 60 ? 4e6 : 1e6 }));
+  }
+  const st = P.moverStudy([{ sym: 'X', bars: b }], { cost: 0 });
+  const gu = st.rows.find(r => r.id === 'gu');
+  assert(gu.n >= 30, 'gap cases ' + gu.n); assert(gu.h[5].mean > 0.03); assert.equal(gu.verdict.key, 'cont');
+  assert.equal(st.rows.length, 6); assert.equal(st.rows.find(r => r.id === 'gd').n, 0);
+  assert.equal(gu.split[0].n, gu.n, 'every gap closed above its open');
+  ok();
+}
 console.log('playbook tests passed:', n);

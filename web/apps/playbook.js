@@ -8,7 +8,7 @@
   const DEF = { riskPct: 1, lossPct: 3, capPct: 25, costBps: 5, hold: 10, acctOverride: "", minPrice: 5, minDvM: 5, maxSpread: 0.5 };
   let cfg = Object.assign({}, DEF, D.load("pbCfg", {}));
   const saveCfg = () => D.save("pbCfg", cfg);
-  const TABS = [["today", "Today"], ["scan", "Scanner"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
+  const TABS = [["today", "Today"], ["scan", "Scanner"], ["movers", "Movers"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
   let root, tab = D.load("pbTab", "today");
   // shared state
   let acct = null, acctValue = null, today = null, gateRes = null, sets = null, setsKey = "", ev = null, evKey = "";
@@ -160,7 +160,7 @@
     root.innerHTML = `
       <div class="app-h"><h1>Playbook</h1><p>When to trade, how much to risk, which setups are live, whether they have paid, and what your own trades say. Read-only: it never places an order.</p></div>
       <div class="tools" style="margin-bottom:14px;flex-wrap:wrap;gap:8px">
-        <div class="seg" role="group" aria-label="Playbook sections" id="pbTabs">${TABS.map(([k, l]) => `<button type="button" data-t="${k}" aria-pressed="${k === tab}">${l}</button>`).join("")}</div>
+        <div class="seg" role="group" aria-label="Playbook sections" id="pbTabs" style="flex-wrap:wrap;max-width:100%">${TABS.map(([k, l]) => `<button type="button" data-t="${k}" aria-pressed="${k === tab}" style="white-space:nowrap">${l}</button>`).join("")}</div>
         <span class="muted" style="font-size:13px">List</span><select id="pbList" class="btn small" aria-label="List for breadth, scanner and evidence"></select>
       </div>
       ${TABS.map(([k]) => `<div data-pb="${k}" ${k === tab ? "" : "hidden"}></div>`).join("")}`;
@@ -169,7 +169,7 @@
     root.addEventListener("click", e => { if (e.target.closest("button, a, input, select")) return; const tr = e.target.closest("tr[data-sym]"); if (tr) D.openSymbol(tr.dataset.sym); });
   }
   let drawn = {};
-  function show() { const box = root.querySelector(`[data-pb="${tab}"]`); if (drawn[tab]) return; drawn[tab] = true; ({ today: drawToday, scan: drawScan, size: drawSize, manage: drawManage, edge: drawEdge, evidence: drawEvidence })[tab](box); }
+  function show() { const box = root.querySelector(`[data-pb="${tab}"]`); if (drawn[tab]) return; drawn[tab] = true; ({ today: drawToday, scan: drawScan, movers: drawMovers, size: drawSize, manage: drawManage, edge: drawEdge, evidence: drawEvidence })[tab](box); }
   const busy = (box, t) => { box.innerHTML = `<p class="muted">${esc(t)}</p>`; };
   const fail = (box, e) => { box.innerHTML = '<div class="banner bad">' + esc(e.message || String(e)) + "</div>"; };
   const field = (id, label, val, step, extra) => `<label class="field"><span>${esc(label)}</span><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${esc(String(val))}" ${extra || ""}></label>`;
@@ -316,6 +316,127 @@
         <div class="pb" style="font-size:13px">${idx.map(x => `<b>${x.s} last half hour:</b> ${esc(x.hh.state === "forming" ? "the signal is set at 10:00." : (x.hh.dir > 0 ? "lean long" : x.hh.dir < 0 ? "lean short" : "no lean") + ` (${pct(x.hh.r)} from yesterday's close to 10:00); ` + (x.hh.state === "waiting" ? "the window is 15:30 to 16:00." : x.hh.state === "window" ? "the window is open now, to the close." : "today's window has closed."))}`).join("<br>")}</div>
         <div class="pb muted" style="font-size:12px">Opening range: the first 5-minute bar's direction sets the side; the entry is a cent beyond its far end and the stop a cent beyond the other end; exit at the stop or the close. Shorts are shown for completeness; the market gate covers longs only. Relative volume is projected to a full day from a typical U-shaped volume curve, so it is approximate. Test both setups on your names in Vela, Edge lab, part 4.</div></div>`;
     } catch (e) { box.innerHTML = head + '<div class="pb"><div class="banner bad">' + esc(e.message) + "</div></div></div>"; }
+  }
+
+  /* ---------- Movers: Webull's market-wide rankings, checked and graded ---------- */
+  const BOARDS = [
+    ["g1", "Today's gainers", { kind: "move", rank: "DAY_1", dir: "DESC" }, 1],
+    ["l1", "Today's losers", { kind: "move", rank: "DAY_1", dir: "ASC" }, 1],
+    ["g5", "5-day gainers", { kind: "move", rank: "DAY_5", dir: "DESC" }, 5],
+    ["l5", "5-day losers", { kind: "move", rank: "DAY_5", dir: "ASC" }, 5],
+    ["gm", "1-month gainers", { kind: "move", rank: "MONTH_1", dir: "DESC" }, 21],
+    ["lm", "1-month losers", { kind: "move", rank: "MONTH_1", dir: "ASC" }, 21],
+    ["vd", "Volume leaders (dollars traded)", { kind: "active", rank: "TURNOVER" }, 1],
+    ["vr", "Unusual volume (vs 10-day average)", { kind: "active", rank: "RELATIVE_VOLUME_10D" }, 1],
+    ["gu", "Gap up", { kind: "gap", dir: 1 }, 1],
+    ["gd", "Gap down", { kind: "gap", dir: -1 }, 1],
+  ];
+  const STUDY_OF = { g5: "g5", l5: "l5", gu: "gu", gd: "gd", vd: null, vr: null };
+  let mvStudy = null, mvStudyKey = "";
+  const preMarket = () => { const n = nyNow(); return !["Sat", "Sun"].includes(n.wd) && n.min >= 240 && n.min < 570; };
+  const sessionStarted = () => { const n = nyNow(); return !["Sat", "Sun"].includes(n.wd) && n.min >= 570; };
+  async function boardRows(id) {
+    const B = BOARDS.find(z => z[0] === id), q = B[2];
+    if (q.kind !== "gap") return { rows: await D.wb.ranking(q.kind, q.rank, q.dir), note: "" };
+    if (preMarket()) {
+      const r = await D.wb.ranking("move", "PRE_MARKET", q.dir > 0 ? "DESC" : "ASC");
+      return { rows: r && r.map(x => Object.assign(x, { gap: x.chg, indicated: true })), note: "Before the open: the gap is the pre-market price against yesterday's close, so it can change by 9:30." };
+    }
+    const lists = await Promise.all([D.wb.ranking("move", "DAY_1", "DESC"), D.wb.ranking("move", "DAY_1", "ASC"), D.wb.ranking("active", "TURNOVER"), D.wb.ranking("active", "RELATIVE_VOLUME_10D")]);
+    if (lists.every(l => !l)) return { rows: null, note: "" };
+    const seen = new Map(); lists.forEach(l => (l || []).forEach(r => { if (!seen.has(r.sym)) seen.set(r.sym, r); }));
+    const rows = [...seen.values()].filter(r => r.open > 0 && r.prev > 0).map(r => Object.assign(r, { gap: r.open / r.prev - 1 })).filter(r => q.dir > 0 ? r.gap >= 0.02 : r.gap <= -0.02).sort((a, b) => q.dir > 0 ? b.gap - a.gap : a.gap - b.gap);
+    return { rows, note: "Gaps are found among the day's top 100 gainers, losers, dollar-volume and relative-volume names: the open against yesterday's close, 2% or more." };
+  }
+  function drawMovers(box) {
+    const cur = D.load("pbBoard", "g5");
+    box.innerHTML = `<div class="tools" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <label class="muted" style="font-size:13px" for="pbBoard">Board</label><select id="pbBoard" class="btn small">${BOARDS.map(([k, l]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <button class="btn small primary" id="pbMvRun" type="button">Refresh</button>
+        <label style="font-size:13px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="pbMvAll"> Show what was filtered out</label>
+        <span class="muted" style="font-size:13px" id="pbMvNote"></span></div>
+      <div id="pbMvOut"><p class="muted">Reading Webull's rankings…</p></div>
+      <div id="pbMvStudy" style="margin-top:18px"></div>`;
+    const go = () => movers(box, box.querySelector("#pbBoard").value);
+    box.querySelector("#pbBoard").onchange = e => { D.save("pbBoard", e.target.value); go(); };
+    box.querySelector("#pbMvRun").onclick = go;
+    box.querySelector("#pbMvAll").onchange = () => { const t = box.querySelector("#pbMvOut table"); if (t) t.querySelectorAll("tr.rej").forEach(r => r.hidden = !box.querySelector("#pbMvAll").checked); };
+    go();
+  }
+  let mvSeq = 0;
+  async function movers(box, id) {
+    const out = box.querySelector("#pbMvOut"), seq = ++mvSeq, B = BOARDS.find(z => z[0] === id), k = B[3], isGap = B[2].kind === "gap";
+    busy(out, "Reading Webull's rankings…");
+    try {
+      const { rows, note } = await boardRows(id);
+      if (seq !== mvSeq) return;
+      if (!rows) { out.innerHTML = `<div class="banner">${esc(D.wb.why())} The Movers boards come from Webull's market rankings: allow the Webull connector for this page (its Permissions menu), then press Refresh.</div>`; return; }
+      const minPx = +cfg.minPrice || 0, n0 = nyNow();
+      rows.forEach(r => { r.why = []; if (r.price != null && r.price < minPx) r.why.push("under $" + minPx); });
+      const cand = rows.filter(r => !r.why.length).slice(0, 30);
+      busy(out, `Checking ${cand.length} names against Robinhood's price history…`);
+      const bars = cand.length ? await D.dailyBars(cand.map(r => r.sym), 420) : {};
+      if (seq !== mvSeq) return;
+      await account().catch(() => {});
+      const qs = sessionNow() && cand.length ? await D.quotes(cand.map(r => r.sym)).catch(() => ({})) : {};
+      cand.forEach(r => {
+        const b = bars[r.sym] || [];
+        if (b.length < 30) { r.why.push("no price history"); return; }
+        const x = P.prep(b), i = b.length - 1, todayIn = b[i].d === n0.date || !sessionStarted();
+        r.check = P.checkMove(b, r.price, r.chg, k, todayIn);
+        if (r.check.ok === false) r.why.push(`reported ${pct(r.chg)}, price history says ${pct(r.check.hist)}: a split, ticker change or bad data`);
+        r.dv20 = x.dv20[i]; r.atr = x.atr[i]; r.v50 = x.v50[i];
+        r.rv = r.rvol != null ? r.rvol : r.vol && r.v50 ? r.vol / r.v50 : null;
+        r.trend = x.s200[i] != null ? (b[i].c > x.s50[i] ? 1 : 0) + (b[i].c > x.s200[i] ? 1 : 0) : null;
+        r.volUp = x.v20[i] != null && x.v20[i - 20] != null ? x.v20[i] > x.v20[i - 20] : null;
+        r.setups = P.setupsAt(b, x, i, liq()).map(h => P.SETUPS.find(z => z.id === h.id).short);
+        r.barsD = b[i].d;
+        const q = qs[r.sym]; r.spread = q && q.bid > 0 && q.ask > q.bid ? (q.ask - q.bid) / ((q.ask + q.bid) / 2) : null;
+        const sp = r.atr ? P.sizePlan({ account: sizingValue() || 0, riskPct: cfg.riskPct / 100, mult: 1, entry: r.price, stop: r.price - 1.5 * r.atr, capPct: cfg.capPct / 100 }) : null;
+        r.posVal = sp && sp.shares ? sp.shares * r.price : null;
+        r.liq = P.liquidityGrade({ price: r.price, dv20: r.dv20, spread: r.spread, minPrice: minPx, minDollarVol: (+cfg.minDvM || 0) * 1e6, maxSpread: cfg.maxSpread / 100, position: r.posVal });
+        if (r.liq.key === "no") r.why.push(...r.liq.why.filter(w => !r.why.includes(w)));
+      });
+      rows.slice(30).forEach(r => { if (!r.why.length) r.why.push("beyond the first 30 checked"); });
+      const keep = rows.filter(r => !r.why.length), rej = rows.filter(r => r.why.length);
+      busy(out, "Checking earnings dates…");
+      const reps = {}; await Promise.all(keep.slice(0, 20).map(async r => { reps[r.sym] = await nextRep(r.sym); }));
+      if (seq !== mvSeq) return;
+      const LQ = { deep: "pass", good: "pass", thin: "", no: "fail" };
+      const tr = { 2: '<span class="chg up">Above 50 &amp; 200-day</span>', 1: '<span class="muted">Mixed</span>', 0: '<span class="chg down">Below both</span>' };
+      const moveCell = r => isGap ? `<span class="chg ${r.gap >= 0 ? "up" : "down"}">${pct(r.gap)}</span>${r.indicated ? ' <span class="muted">indicated</span>' : ""}` : `<span class="chg ${r.chg >= 0 ? "up" : "down"}">${pct(r.chg)}</span>`;
+      const sinceOpen = r => { if (r.indicated || !(r.open > 0) || r.price == null) return "—"; const so = r.price / r.open - 1; const held = isGap ? (B[2].dir > 0 ? so >= 0 : so <= 0) : null; const filled = isGap && r.prev ? (B[2].dir > 0 ? r.low <= r.prev : r.high >= r.prev) : false; return `<span class="chg ${so >= 0 ? "up" : "down"}">${pct(so)}</span>${held == null ? "" : held ? ' <span class="pill pass">Held</span>' : ' <span class="pill">Faded</span>'}${filled ? ' <span class="pill fail" title="Traded back to yesterday\'s close">Filled</span>' : ""}`; };
+      const row = (r, rj) => `<tr class="clickable${rj ? " rej" : ""}" tabindex="0" data-sym="${esc(r.sym)}" ${rj ? "hidden" : ""}><td><b>${esc(r.sym)}</b> <span class="muted" style="font-size:12px">${esc((r.name || "").slice(0, 22))}</span></td><td>${moveCell(r)}</td><td>${px(r.price)}</td><td>${sinceOpen(r)}</td><td>${r.rv != null ? r.rv.toFixed(1) + "×" : "—"}</td><td>${r.dv20 != null ? "$" + D.big(r.dv20) : "—"}</td><td>${r.spread != null ? (r.spread * 100).toFixed(2) + "%" : '<span class="muted">—</span>'}</td>
+        <td>${rj ? `<span class="pill fail">Out</span> <span class="muted" style="white-space:normal;display:inline-block;min-width:200px">${esc(r.why.join("; "))}</span>` : `<span class="pill ${LQ[r.liq.key]}" title="${esc(r.liq.why.join("; ") || "Within your limits")}">${esc(r.liq.label)}</span>${r.liq.share != null ? ` <span class="muted">${(r.liq.share * 100).toFixed(2)}% of a day</span>` : ""}`}</td>
+        <td>${r.trend == null ? "—" : tr[r.trend]}</td><td>${r.volUp == null ? "—" : r.volUp ? '<span class="chg up">Rising</span>' : '<span class="chg down">Falling</span>'}</td><td>${r.setups && r.setups.length ? esc(r.setups.join(", ")) : '<span class="muted">none</span>'}</td><td>${rj ? "" : repCell(reps[r.sym])}</td></tr>`;
+      out.innerHTML = `<p class="verdict-line" style="font-size:18px">${esc(`${keep.length} of ${rows.length} names on ${B[1].toLowerCase()} are tradable by your rules.`)}</p>
+        <div class="panel"><div class="ph"><h2>${esc(B[1])}</h2><span class="eyebrow">Webull ranking, checked against Robinhood</span></div>
+        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>${isGap ? "Gap" : k === 1 ? "Today" : k === 5 ? "5 days" : "1 month"}</th><th>Price</th><th>Since the open</th><th>Relative volume</th><th>Dollar volume (20-day)</th><th>Spread</th><th>Liquidity</th><th>Trend</th><th>Volume trend</th><th>Setup on last close</th><th>Earnings</th></tr></thead><tbody>
+        ${keep.length ? keep.map(r => row(r, false)).join("") : '<tr><td colspan="12" class="muted">Nothing on this board passes your price, volume and spread limits.</td></tr>'}${rej.map(r => row(r, true)).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">${esc(note)} Every name is checked against Robinhood's split-adjusted daily history: when the reported move doesn't match the price history (a reverse split, a ticker change, a new listing or bad data) it's filtered out. Liquidity: Deep means $100 million or more traded a day and a spread of 0.1% or less; Good, $20 million and 0.3%; Thin passes your limits but costs more to trade; Out fails them (under $${esc(String(cfg.minPrice))}, under $${esc(String(cfg.minDvM))} million a day, a spread over ${esc(String(cfg.maxSpread))}%, or your position over 1% of a day's trading). "% of a day" is a ${esc(String(cfg.riskPct))}%-risk position with a 1.5 ATR stop against the 20-day dollar volume. Spreads are read live during the session only. Relative volume is Webull's 10-day figure where given, else today's volume against the 50-day average. Earnings in red land within your ${esc(String(cfg.hold))}-session hold. A board is a list of what already moved, not a buy list: see what such moves did next below.</div></div>`;
+      box.querySelector("#pbMvNote").textContent = `${rows.length} ranked, ${rej.length} filtered out` + (cand[0] && cand[0].barsD ? `; history to ${cand[0].barsD}` : "");
+      if (box.querySelector("#pbMvAll").checked) out.querySelectorAll("tr.rej").forEach(r => r.hidden = false);
+    } catch (e) { if (seq === mvSeq) fail(out, e); }
+    studyPanel(box.querySelector("#pbMvStudy"), STUDY_OF[id]);
+  }
+  async function studyPanel(el, hi) {
+    if (!el) return;
+    if (!cfg.listId) { el.innerHTML = '<p class="muted">Choose a list above to test what these moves did next on its history.</p>'; return; }
+    try {
+      busy(el, "Testing what such moves did next…");
+      const st = await listSets(t => busy(el, t));
+      const key = setsKey + "|" + cfg.costBps + "|" + cfg.minPrice + "|" + cfg.minDvM;
+      if (!mvStudy || mvStudyKey !== key) { await new Promise(r => setTimeout(r, 0)); mvStudy = P.moverStudy(st, { cost: cfg.costBps / 10000, liq: liq() }); mvStudyKey = key; }
+      const S0 = mvStudy, VK = { cont: ["Kept going", "pass"], rev: ["Reversed", "fail"], none: ["No edge", ""], thin: ["Too few", ""] };
+      const cellH = h => h.n ? `<span class="chg ${h.mean >= 0 ? "up" : "down"}">${pct(h.mean)}</span>` : "—";
+      const spl = z => z.n ? `${esc(z.label)}: <span class="chg ${z.excess5 >= 0 ? "up" : "down"}">${pct(z.excess5)}</span> <span class="muted">(${z.n})</span>` : `<span class="muted">${esc(z.label)}: none</span>`;
+      el.innerHTML = `<div class="panel"><div class="ph"><h2>What such moves did next</h2><span class="eyebrow">${S0.names} names on your list, about 3 years</span></div>
+        <div class="scroll"><table class="dt"><thead><tr><th>Move</th><th>Cases</th><th>Next day</th><th>Next 5 days</th><th>Next 10 days</th><th>5 days vs a normal week</th><th>Split (5 days vs normal)</th><th>Verdict</th></tr></thead><tbody>
+        ${S0.rows.map(r => `<tr${r.id === hi ? ' style="background:var(--hl, rgba(0,128,128,.08))"' : ""}><td><b>${esc(r.label)}</b></td><td>${r.n}</td><td>${cellH(r.h[1])}</td><td>${cellH(r.h[5])} <span class="muted">${r.h[5].win != null ? p0(r.h[5].win) + " up" : ""}</span></td><td>${cellH(r.h[10])}</td><td>${r.excess5 == null ? "—" : `<span class="chg ${r.excess5 >= 0 ? "up" : "down"}">${pct(r.excess5)}</span> <span class="muted">t ${r.t == null ? "—" : r.t.toFixed(1)}</span>`}</td><td style="white-space:normal;min-width:240px">${spl(r.split[0])}<br>${spl(r.split[1])}</td><td><span class="pill ${VK[r.verdict.key][1]}" title="${esc(r.verdict.text)}">${VK[r.verdict.key][0]}</span></td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">Each move on a liquid day on your list (counted at most once a week per stock), bought at the next open and sold at the close 1, 5 or 10 sessions later, ${esc(String(cfg.costBps))} bp a side. "vs a normal week" subtracts the same stocks' average 5-day return over all liquid days (${pct(S0.base)}), so a positive number means the move was followed by a better week than usual. Kept going or Reversed needs at least 30 cases, a t-statistic of 2 or more and half a percent or more; anything less is No edge. Studies of US stocks find last week's biggest winners and losers tend to partly reverse the next week (Jegadeesh 1990; Lehmann 1990), more so in small, thin stocks and less when the move came on heavy volume (Gervais, Kaniel and Mingelgrin 2001). This tests that on your own list; a list of large companies has few 15% weeks, so pick a broad list for more cases.</div></div>`;
+    } catch (e) { fail(el, e); }
   }
 
   /* ---------- Size a trade ---------- */
