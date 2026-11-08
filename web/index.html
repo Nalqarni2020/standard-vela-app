@@ -309,14 +309,7 @@ table { border-collapse: collapse; width: 100%; }
       <div class="pb muted" id="scanNote" style="font-size:12px">Lists are Robinhood's curated lists. Relative volume here is today's volume against the 2-week average, so early in the day it reads low. Tap a row to open it on Standard.</div>
     </div>
 
-    <div data-vp="gamma" class="panel" hidden>
-      <div class="ph"><h2 data-i18n="vGamma">Gamma</h2>
-        <div class="tools"><select id="gExp" class="btn small" aria-label="Expiration"></select><button class="btn small primary" id="gRun" type="button" data-i18n="gRun">Build profile</button></div>
-      </div>
-      <div class="kv" id="gStats"></div>
-      <div class="chart-box tall"><canvas id="chartG" role="img" aria-label="Net gamma exposure by strike"></canvas></div>
-      <div class="pb muted" style="font-size:12px">Dollar gamma per 1% move = gamma × open interest × 100 × spot² × 0.01. The sign uses the common dealer convention (dealers long calls, short puts), which is a model of positioning and not a fact about it. Open interest updates once a day.</div>
-    </div>
+    <div data-vp="gamma" class="panel" hidden id="gammaHost"></div>
 
     <div data-vp="float" class="panel" hidden>
       <div class="ph"><h2 data-i18n="vFloat">Float and shorts</h2><span class="eyebrow" id="floatAsOf"></span></div>
@@ -1470,7 +1463,6 @@ const Chart = {
   },
   paint(cv) {
     const spec = this.specs.get(cv); if (!spec) return;
-    if (spec.kind === "gamma") return paintGamma(cv, spec);
     const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
     if (!W || !H) return;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
@@ -1705,69 +1697,8 @@ function renderScan() {
   $("#scanTable tbody").innerHTML = rows.map(r => '<tr class="clickable" data-sym="' + esc(r.sym) + '" tabindex="0"><td><b>' + esc(r.sym) + "</b></td><td>" + px(r.last) + '</td><td class="chg ' + (r.chg >= 0 ? "up" : "down") + '">' + pct(r.chg) + "</td><td>" + big(r.vol) + "</td><td>" + (r.rvol == null ? "—" : r.rvol.toFixed(2) + "×") + "</td><td>" + big(r.cap) + "</td><td>" + (r.verdict ? '<span class="pill ' + (r.verdict === "BUY" ? "pass" : "fail") + '">' + esc(r.verdict) + "</span> " + esc(r.why) : "—") + "</td></tr>").join("") || '<tr><td colspan="7" class="empty">Load a list to scan.</td></tr>';
 }
 
-/* gamma */
-let gChain = null, gSym = null;
-async function prepGamma() {
-  if (S.example || !S.data) { $("#gStats").innerHTML = '<div><div class="k">Gamma</div><div class="n">Needs the Robinhood connection</div></div>'; return; }
-  if (gSym === S.data.sym && gChain) return;
-  gSym = S.data.sym; gChain = null; $("#gExp").innerHTML = ""; clearCanvas($("#chartG"));
-  try {
-    const d = await call("get_option_chains", { underlying_symbol: gSym }, 3600000);
-    const chains = (d && d.chains) || [];
-    gChain = chains.find(c => c.symbol === gSym && (c.underlying_instruments || []).length) || chains[0] || null;
-    if (!gChain) { $("#gStats").innerHTML = '<div><div class="k">Options</div><div class="n">No listed options for ' + esc(gSym) + "</div></div>"; return; }
-    $("#gExp").innerHTML = gChain.expiration_dates.slice(0, 8).map(x => "<option>" + esc(x) + "</option>").join("");
-    $("#gStats").innerHTML = '<div><div class="k">Chain</div><div class="n">' + esc(gSym) + " · " + gChain.expiration_dates.length + " expirations</div></div>";
-  } catch (e) { $("#gStats").innerHTML = '<div><div class="k">Options</div><div class="n" style="font-size:13px">' + esc(e.message) + "</div></div>"; }
-}
-async function runGamma() {
-  if (!gChain || !S.data) return;
-  const exp = $("#gExp").value, btn = $("#gRun"); btn.disabled = true;
-  const q = S.data.quote; const spot = q ? (marketOpen(q, Date.now()) ? q.last : (q.close || q.last)) : S.data.daily[S.data.daily.length - 1].c;
-  $("#gStats").innerHTML = '<div><div class="k">Building</div><div class="n">Reading contracts…</div></div>';
-  try {
-    let inst = [], cursor = null, pages = 0;
-    do { const d = await call("get_option_instruments", Object.assign({ chain_id: gChain.id, expiration_dates: exp }, cursor ? { cursor } : {}), 600000); inst = inst.concat((d && d.instruments) || []); cursor = d && d.next ? d.next : null; pages++; } while (cursor && pages < 10);
-    inst = inst.filter(i => { const k = +i.strike_price; return k >= spot * 0.6 && k <= spot * 1.4; });
-    const rows = [];
-    const ids = inst.map(i => i.id); const chunks = [];
-    for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
-    for (let i = 0; i < chunks.length; i += 4) {
-      const res = await Promise.all(chunks.slice(i, i + 4).map(ch => call("get_option_quotes", { instrument_ids: ch }, 120000)));
-      res.forEach(d => ((d && d.results) || []).forEach(r => { const qq = r.quote; if (!qq) return; const ins = inst.find(x => x.id === qq.instrument_id); if (ins) rows.push({ strike: +ins.strike_price, type: ins.type, gamma: +qq.gamma, oi: +qq.open_interest, iv: +qq.implied_volatility, vol: +qq.volume }); }));
-      $("#gStats").innerHTML = '<div><div class="k">Building</div><div class="n">' + rows.length + " of " + inst.length + " contracts</div></div>";
-    }
-    const g = E.gammaProfile(rows, spot);
-    const coi = rows.filter(r => r.type === "call").reduce((s, r) => s + (r.oi || 0), 0), poi = rows.filter(r => r.type === "put").reduce((s, r) => s + (r.oi || 0), 0);
-    $("#gStats").innerHTML = [["Spot", px(spot)], ["Net gamma per 1%", "$" + big(g.total)], ["Call wall", px(g.callWall)], ["Put wall", px(g.putWall)], ["Gamma flip", g.flip == null ? "none in range" : px(g.flip)], ["Put / call OI", coi ? (poi / coi).toFixed(2) : "—"]].map(([k, v]) => '<div><div class="k">' + esc(k) + '</div><div class="n">' + esc(v) + "</div></div>").join("");
-    Chart.draw($("#chartG"), { kind: "gamma", g, spot, exp });
-  } catch (e) { $("#gStats").innerHTML = '<div><div class="k">Gamma</div><div class="n" style="font-size:13px">' + esc(e.message) + "</div></div>"; }
-  btn.disabled = false;
-}
-function paintGamma(cv, spec) {
-  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight; if (!W || !H) return;
-  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
-  const list = spec.g.list.filter(r => r.call || r.put); if (!list.length) return;
-  const mono = tok("--font-mono") || "monospace", ink3 = tok("--ink-3"), rule = tok("--rule");
-  const padL = 56, padR = 16, padT = 12, padB = 24, rowH = (H - padT - padB) / list.length;
-  const mx = Math.max(...list.map(r => Math.max(Math.abs(r.call), Math.abs(r.put)))) || 1;
-  const mid = padL + (W - padL - padR) / 2, half = (W - padL - padR) / 2 - 4;
-  x.strokeStyle = rule; x.beginPath(); x.moveTo(mid + 0.5, padT); x.lineTo(mid + 0.5, H - padB); x.stroke();
-  x.font = "10px " + mono; x.textBaseline = "middle";
-  const every = Math.max(1, Math.ceil(12 / rowH));
-  const hiStrike = list[list.length - 1].strike;
-  list.slice().reverse().forEach((r, k) => {
-    const y = padT + k * rowH, h = Math.max(1, rowH * 0.72);
-    x.fillStyle = tok("--up"); x.fillRect(mid, y + (rowH - h) / 2, r.call / mx * half, h);
-    x.fillStyle = tok("--down"); x.fillRect(mid + r.put / mx * half, y + (rowH - h) / 2, -r.put / mx * half, h);
-    if (k % every === 0) { x.fillStyle = ink3; x.fillText(px(r.strike), 6, y + rowH / 2); }
-  });
-  const yOf = s => { const lo = list[0].strike; return padT + (hiStrike - s) / (hiStrike - lo || 1) * (H - padT - padB - rowH) + rowH / 2; };
-  [[spec.spot, tok("--ink"), "Spot " + px(spec.spot)], [spec.g.flip, tok("--amber"), spec.g.flip != null ? "Flip " + px(spec.g.flip) : null]].forEach(([v, col, lbl]) => { if (v == null || !lbl) return; const y = Math.round(yOf(v)) + 0.5; x.strokeStyle = col; x.setLineDash([4, 3]); x.beginPath(); x.moveTo(padL, y); x.lineTo(W - padR, y); x.stroke(); x.setLineDash([]); x.fillStyle = col; x.font = "600 10.5px " + mono; x.fillText(lbl, W - padR - x.measureText(lbl).width, y - 8); });
-  x.fillStyle = ink3; x.font = "10px " + mono; x.textBaseline = "top";
-  x.fillText("Put gamma ←", padL, H - padB + 6); const t = "→ Call gamma · " + spec.exp; x.fillText(t, W - padR - x.measureText(t).width, H - padB + 6);
-}
+/* gamma: apps/gamma.js draws the Gamma view */
+function prepGamma() { if (Desk.gammaApp) Desk.gammaApp.show($("#gammaHost")); else $("#gammaHost").innerHTML = '<p class="muted" style="padding:16px">Loading…</p>'; }
 
 /* paper book */
 const PB0 = () => ({ cash: 25000, start: 25000, pos: {}, orders: [], fills: [], realized: 0, seq: 1 });
@@ -2147,7 +2078,6 @@ $("#scanLoad").addEventListener("click", scanLoad);
 $("#scanJudge").addEventListener("click", scanJudge);
 $("#scanTable").addEventListener("click", e => { const th = e.target.closest("th[data-k]"); if (th) { scanSort = { k: th.dataset.k, dir: scanSort.k === th.dataset.k ? -scanSort.dir : -1 }; renderScan(); return; } const tr = e.target.closest("tr[data-sym]"); if (tr) { location.hash = "standard"; loadSymbol(tr.dataset.sym, false); } });
 $("#scanTable").addEventListener("keydown", e => { if (e.key === "Enter") { const tr = e.target.closest("tr[data-sym]"); if (tr) { location.hash = "standard"; loadSymbol(tr.dataset.sym, false); } } });
-$("#gRun").addEventListener("click", runGamma);
 const cbSet = (k, v) => { CB[k] = v; save("cb", CB); renderCB(); };
 $("#cbBody").addEventListener("change", e => cbSet("body", Math.min(1, Math.max(0.05, +e.target.value || 0.55))));
 $("#cbCost").addEventListener("change", e => cbSet("cost", Math.max(0, +e.target.value || 0)));
@@ -2207,6 +2137,8 @@ applyLang(); route();
 </script>
 <script src="apps/analytics.js"></script>
 <script src="apps/playbook-core.js"></script>
+<script src="apps/exposure-core.js"></script>
+<script src="apps/gamma.js"></script>
 <script src="apps/brokers.js"></script>
 <script src="apps/playbook.js"></script>
 <script src="apps/book.js"></script>

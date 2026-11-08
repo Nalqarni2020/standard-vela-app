@@ -43,3 +43,14 @@ Without Webull the desk works as before and says Webull is unavailable.
 node web/build.js
 ```
 Then publish `web/index.html` with `web/apps/*.js` as its files, to the existing artifact, keeping its capabilities (Robinhood and Webull read tools, sample, db, user).
+
+## Vela → Gamma (options exposure)
+
+`apps/exposure-core.js` (pure, tested in `tests/exposure.js`) and `apps/gamma.js` (the view). From Robinhood's option chain
+(open interest and implied volatility per contract) it builds GEX, VEX, DEX and charm by strike and expiration with
+Black-Scholes greeks, for the nearest expiration, this week, the next 30 days or one expiration. It shows a heatmap, the
+King strike, call and put walls, the zero-gamma level (where total GEX changes sign as the price moves) and the expected
+move from the at-the-money straddle. GEX and VEX use the common "dealers long calls, short puts" sign, which is an
+assumption. Each build is logged to the page's database (`gexlog`), and builds made outside market hours are tested
+against the next session: range against the expected move by gamma regime, walls reached and held, and closes nearer
+the King. Read-only.
