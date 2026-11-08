@@ -54,3 +54,13 @@ move from the at-the-money straddle. GEX and VEX use the common "dealers long ca
 assumption. Each build is logged to the page's database (`gexlog`), and builds made outside market hours are tested
 against the next session: range against the expected move by gamma regime, walls reached and held, and closes nearer
 the King. Read-only.
+
+## Playbook → Quality
+
+`apps/quality-core.js` (tested in `tests/quality.js`). Quality (0–100) from the last four quarters: ROE, ROA, gross
+margin, revenue growth, profitable quarters of the last eight, liabilities to assets, and operating cash flow against
+earnings. Value from the earnings yield and price to book, P/E against the stock's own five years, and a Graham value
+range. A read combines quality with the trend (Candidate, Watch, Cheap but weak, Avoid). A point-in-time test scores
+each stock when each quarter became public (45 days after quarter end, 75 for the fiscal year) and compares 3- and
+12-month returns by group against the list on the same dates. Sources: Robinhood `get_financials`, Webull
+`get_financial_indicators`. US stocks only.

@@ -8,7 +8,7 @@
   const DEF = { riskPct: 1, lossPct: 3, capPct: 25, costBps: 5, hold: 10, acctOverride: "", minPrice: 5, minDvM: 5, maxSpread: 0.5 };
   let cfg = Object.assign({}, DEF, D.load("pbCfg", {}));
   const saveCfg = () => D.save("pbCfg", cfg);
-  const TABS = [["today", "Today"], ["scan", "Scanner"], ["movers", "Movers"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
+  const TABS = [["today", "Today"], ["scan", "Scanner"], ["movers", "Movers"], ["quality", "Quality"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
   let root, tab = D.load("pbTab", "today");
   // shared state
   let acct = null, acctValue = null, today = null, gateRes = null, sets = null, setsKey = "", ev = null, evKey = "";
@@ -169,7 +169,7 @@
     root.addEventListener("click", e => { if (e.target.closest("button, a, input, select")) return; const tr = e.target.closest("tr[data-sym]"); if (tr) D.openSymbol(tr.dataset.sym); });
   }
   let drawn = {};
-  function show() { const box = root.querySelector(`[data-pb="${tab}"]`); if (drawn[tab]) return; drawn[tab] = true; ({ today: drawToday, scan: drawScan, movers: drawMovers, size: drawSize, manage: drawManage, edge: drawEdge, evidence: drawEvidence })[tab](box); }
+  function show() { const box = root.querySelector(`[data-pb="${tab}"]`); if (drawn[tab]) return; drawn[tab] = true; ({ today: drawToday, scan: drawScan, movers: drawMovers, quality: drawQuality, size: drawSize, manage: drawManage, edge: drawEdge, evidence: drawEvidence })[tab](box); }
   const busy = (box, t) => { box.innerHTML = `<p class="muted">${esc(t)}</p>`; };
   const fail = (box, e) => { box.innerHTML = '<div class="banner bad">' + esc(e.message || String(e)) + "</div>"; };
   const field = (id, label, val, step, extra) => `<label class="field"><span>${esc(label)}</span><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${esc(String(val))}" ${extra || ""}></label>`;
@@ -437,6 +437,70 @@
         </tbody></table></div>
         <div class="pb muted" style="font-size:12px">Each move on a liquid day on your list (counted at most once a week per stock), bought at the next open and sold at the close 1, 5 or 10 sessions later, ${esc(String(cfg.costBps))} bp a side. "vs a normal week" subtracts the same stocks' average 5-day return over all liquid days (${pct(S0.base)}), so a positive number means the move was followed by a better week than usual. Kept going or Reversed needs at least 30 cases, a t-statistic of 2 or more and half a percent or more; anything less is No edge. Studies of US stocks find last week's biggest winners and losers tend to partly reverse the next week (Jegadeesh 1990; Lehmann 1990), more so in small, thin stocks and less when the move came on heavy volume (Gervais, Kaniel and Mingelgrin 2001). This tests that on your own list; a list of large companies has few 15% weeks, so pick a broad list for more cases.</div></div>`;
     } catch (e) { fail(el, e); }
+  }
+
+  /* ---------- Quality: quality and value from quarterly reports, with a point-in-time test ---------- */
+  const QL = window.Quality;
+  let qlData = null, qlKey = "";
+  async function drawQuality(box) {
+    box.innerHTML = `<div class="tools" style="margin-bottom:12px"><button class="btn small primary" id="pbQlRun" type="button">Refresh</button><span class="muted" style="font-size:13px" id="pbQlNote"></span></div><div id="pbQlOut"><p class="muted">Reading reports…</p></div><div id="pbQlStudy" style="margin-top:18px"></div>`;
+    box.querySelector("#pbQlRun").onclick = () => { qlData = null; quality(box); };
+    quality(box);
+  }
+  async function quality(box) {
+    const out = box.querySelector("#pbQlOut"), st = box.querySelector("#pbQlStudy");
+    if (!cfg.listId) { out.innerHTML = '<p class="muted">Choose a list above.</p>'; return; }
+    try {
+      const syms = [...new Set(await D.listSymbols(cfg.listId))].slice(0, 40);
+      if (!qlData || qlKey !== cfg.listId) {
+        busy(out, "Reading quarterly financials from Robinhood…");
+        const fin = {};
+        for (let i = 0; i < syms.length; i += 20) { const chunk = syms.slice(i, i + 20); const d = await call("get_financials", { symbols: chunk, period: "quarterly", limit: 24 }, 6 * 3600000).catch(() => null); ((d && d.results) || []).forEach((r, k) => { if (r) fin[r.symbol || chunk[k]] = r.financials || []; }); }
+        const ind = {}; let wbOk = true;
+        for (let i = 0; i < syms.length; i += 4) {
+          busy(out, `Reading ratios from Webull: ${Math.min(i + 4, syms.length)} of ${syms.length}…`);
+          const got = await Promise.all(syms.slice(i, i + 4).map(s0 => D.wb.indicators(s0).catch(() => null)));
+          got.forEach((v, k) => { if (v) ind[syms[i + k]] = v; });
+          if (D.wb.state === "off") { wbOk = false; break; }
+        }
+        busy(out, "Reading five years of prices…");
+        const bars = await D.dailyBars(syms, 1900, (a, b) => busy(out, `Reading five years of prices: ${a} of ${b}…`));
+        qlData = { syms, fin, ind, bars, wbOk }; qlKey = cfg.listId;
+      }
+      const { fin, ind, bars, wbOk } = qlData;
+      const items = qlData.syms.map(s0 => ({ sym: s0, qs: QL.merge(fin[s0] || [], ind[s0] || null), bars: bars[s0] || [] }));
+      const rows = items.map(it => {
+        const b = it.bars, j = b.length - 1; if (j < 0 || !it.qs.length) return { sym: it.sym, s: null };
+        const i = it.qs.length - 1, s = QL.scoreAt(it.qs, i, b[j].c), t = QL.trendAt(b, j);
+        // P/E against the stock's own last five years, measured on each report's known date
+        let pePct = null;
+        if (s && s.pe) { const hist = []; for (let k = 3; k < it.qs.length; k++) { const jj = b.findIndex(x => x.d >= it.qs[k].avail); if (jj < 0) continue; const z = QL.scoreAt(it.qs, k, b[jj].c); if (z && z.pe) hist.push(z.pe); } if (hist.length >= 6) pePct = hist.filter(v => v < s.pe).length / hist.length; }
+        return { sym: it.sym, s, t, dec: QL.decision(s, t), last: b[j].c, pePct, d: b[j].d };
+      }).sort((a, c) => ((c.s && c.s.quality) ?? -1) - ((a.s && a.s.quality) ?? -1));
+      const reps = {}; await Promise.all(rows.filter(r => r.s).slice(0, 25).map(async r => { reps[r.sym] = await nextRep(r.sym); }));
+      const DC = { cand: "pass", watch: "", trap: "fail", avoid: "fail", neutral: "", na: "" };
+      const sc = v => v == null ? '<span class="muted">—</span>' : `<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:44px;height:8px;background:var(--rule);display:inline-block;position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:${v}%;background:var(${v >= 70 ? "--up" : v < 40 ? "--down" : "--amber"})"></span></span><b>${v}</b></span>`;
+      const p1 = v => v == null ? "—" : (v * 100).toFixed(0) + "%";
+      const TR = { up: '<span class="chg up">Up</span>', down: '<span class="chg down">Down</span>', mixed: '<span class="muted">Mixed</span>' };
+      out.innerHTML = `<div class="panel"><div class="ph"><h2>Quality and value</h2><span class="eyebrow">Latest reported quarter, price to ${esc(rows.find(r => r.d) ? rows.find(r => r.d).d : "—")}</span></div>
+        ${wbOk ? "" : `<div class="pb"><div class="banner">${esc(D.wb.why())} Webull supplies ROE, debt, earnings per share and book value; without it only margins, growth and consistency are scored and value can't be.</div></div>`}
+        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Quality</th><th>Value</th><th>Trend</th><th>Read</th><th>ROE</th><th>Gross margin</th><th>Revenue growth</th><th>Profitable quarters</th><th>Liabilities / assets</th><th>Cash / earnings</th><th>P/E</th><th>P/E vs its 5 years</th><th>P/B</th><th>Graham value</th><th>Earnings</th></tr></thead><tbody>
+        ${rows.map(r => { const s = r.s; if (!s) return `<tr><td><b>${esc(r.sym)}</b></td><td colspan="15" class="muted">No reports came back (funds and new listings have none).</td></tr>`; const m = s.m;
+          return `<tr class="clickable" tabindex="0" data-sym="${esc(r.sym)}"><td><b>${esc(r.sym)}</b></td><td>${sc(s.quality)}</td><td>${sc(s.value)}</td><td>${r.t ? TR[r.t] : "—"}</td><td><span class="pill ${DC[r.dec.key]}">${esc(r.dec.label)}</span></td><td>${p1(m.roe)}</td><td>${p1(m.gm)}</td><td>${m.growth == null ? "—" : `<span class="chg ${m.growth >= 0 ? "up" : "down"}">${pct(m.growth)}</span>`}</td><td>${m.consistency == null ? "—" : Math.round(m.consistency * 8) + " of 8"}</td><td>${m.dta == null ? "—" : m.dta.toFixed(2)}</td><td>${m.cash == null ? "—" : m.cash.toFixed(2) + "×"}</td><td>${s.pe ? s.pe.toFixed(1) : '<span class="muted">loss</span>'}</td><td>${r.pePct == null ? "—" : r.pePct <= 0.25 ? '<span class="chg up">Cheaper than usual</span>' : r.pePct >= 0.75 ? '<span class="chg down">Pricier than usual</span>' : '<span class="muted">Typical</span>'}</td><td>${s.pb ? s.pb.toFixed(1) : "—"}</td><td>${s.graham ? px(s.graham * 0.75) + "–" + px(s.graham * 1.25) : "—"}</td><td>${repCell(reps[r.sym])}</td></tr>`; }).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">Quality, 0 to 100, averages seven parts over the last four quarters: return on equity (25%+ scores full), return on assets (12%+), gross margin (60%+), revenue growth against a year earlier (+20%+), profitable quarters out of the last eight, liabilities to assets (0.3 or less scores full, 0.9 or more zero; banks and insurers always look indebted on this), and operating cash flow against earnings (1× or more). Value averages the earnings yield (8%+ scores full) and price to book (1× full, 15× zero). Read: Candidate = quality 70+ with the trend up; Watch = quality 70+ waiting for the trend; Cheap but weak = value 60+ with quality under 40, the classic value trap; Avoid = quality under 40 in a downtrend. Graham value = √(22.5 × earnings per share × book value per share), shown as a ±25% range because it is a rough, old rule that undervalues growth companies. Research: profitable, safe companies have earned more over long periods (Novy-Marx 2013; Asness, Frazzini and Pedersen 2019); cheapness alone has been weak since about 2007 and works better with quality. Reports: Robinhood (income) and Webull (ratios). Context, not a buy list.</div></div>`;
+      box.querySelector("#pbQlNote").textContent = `${rows.filter(r => r.s).length} of ${rows.length} names scored`;
+      // the test
+      busy(st, "Testing the scores on the list's last five years…");
+      await new Promise(r => setTimeout(r, 0));
+      const S0 = QL.study(items, { liq: { minPrice: +cfg.minPrice || 0 } });
+      const cell = h => h && h.excess != null ? `<span class="chg ${h.excess >= 0 ? "up" : "down"}">${pct(h.excess)}</span> <span class="muted">t ${h.t == null ? "—" : h.t.toFixed(1)}</span>` : "—";
+      st.innerHTML = `<div class="panel"><div class="ph"><h2>Did the scores work on this list?</h2><span class="eyebrow">${S0.obs} stock-quarters, ${S0.names} names, ${esc(S0.from || "—")} to ${esc(S0.to || "—")}</span></div>
+        <div class="scroll"><table class="dt"><thead><tr><th>Group</th><th>Cases</th><th>Next 3 months, average</th><th>vs the list (3 months)</th><th>Next 12 months, average</th><th>vs the list (12 months)</th><th>Up after 12 months</th></tr></thead><tbody>
+        ${S0.rows.map(r => `<tr><td><b>${esc(r.label)}</b></td><td>${r.n}</td><td>${r.h[63].avg == null ? "—" : pct(r.h[63].avg)}</td><td>${r.id === "all" ? "—" : cell(r.h[63])}</td><td>${r.h[252].avg == null ? "—" : pct(r.h[252].avg)}</td><td>${r.id === "all" ? "—" : cell(r.h[252])}</td><td>${r.h[252].win == null ? "—" : p0(r.h[252].win)}</td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">Each time a quarter became public (45 days after it ended, 75 for the fiscal year), the stock was scored at that day's close and held from the next open for 3 or 12 months. "vs the list" compares each group with the average of all the list's stocks scored on the same dates, then averages across dates; the 12-month t-statistic is cut for overlapping windows. Read it with care: about five years and one list is a small sample, and a list chosen today holds companies that did well enough to be on it (survivorship), which flatters every group. A t-statistic under about 2 is not evidence either way.</div></div>`;
+    } catch (e) { fail(out, e); }
   }
 
   /* ---------- Size a trade ---------- */

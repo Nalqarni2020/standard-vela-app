@@ -94,6 +94,8 @@
       const rows = Array.isArray(d) ? d : d && Array.isArray(d.data) ? d.data : null; if (!rows) return null;
       return rows.filter(isStock).map(r => ({ sym: r.symbol, name: r.name, open: num(r.open), high: num(r.high), low: num(r.low), price: num(r.price) ?? num(r.close), prev: num(r.pre_close), chg: num(r.change_ratio), vol: num(r.volume), rvol: num(r.relative_volume_10d), turnover: num(r.turnover_rate), mcap: num(r.market_value) }));
     },
+    /* Quarterly indicators: ROE, ROA, liabilities to assets, diluted EPS, operating cash flow and book value per share (up to 20 quarters). */
+    async indicators(sym) { const d = await wbCall("get_financial_indicators", { symbol: sym, category: "US_STOCK", type: "QUARTERLY", count: 20 }, 6 * 3600000); return d && d.values ? d.values : null; },
     async unusual(sym, count) { const d = await wbCall("get_stock_unusual_activities", { symbol: sym, count: count || 10 }, 900000); return Array.isArray(d) ? d.map(x => ({ t: Date.parse(x.time), type: x.alert_type, vol: num(x.volume) })).filter(x => isFinite(x.t)) : null; },
   };
 
