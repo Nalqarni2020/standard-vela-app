@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 6); assert(ev.trials === 20);
+  assert.equal(ev.rows.length, 7); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -227,6 +227,51 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert(!fires(mk({ fall: 0.15 })), 'no setup without a real decline');
   assert(!fires(mk({ fall: 0.6, width: 1.0 })), 'no setup when the range is too wide'); assert(fires(mk({ fall: 0.6, width: 0.3 })), 'a 9% wide base after a 54% fall does fire');
   assert(!fires(mk({ vol: 1.1 })), 'no setup without heavy volume');
+  ok();
+}
+
+// rally-base-rally retest: breakout from a tight base on volume, a rally, a quiet pullback to the base top
+{
+  const S = 200, b = []; let i = 0;   // S sessions of history first: setups need a year of bars
+  for (; i < S + 60; i++) { const c = 20 + i * 0.1; b.push(Object.assign(day(i), { o: c, h: c * 1.005, l: c * 0.995, c, v: 1e6 })); }
+  for (; i < S + 75; i++) { const c = 46 + ((i % 3) - 1) * 0.6; b.push(Object.assign(day(i), { o: c, h: c + 0.4, l: c - 0.4, c, v: 1e6 })); }   // base about 45-47
+  b.push(Object.assign(day(i), { o: 47, h: 48.6, l: 46.9, c: 48.4, v: 3e6 })); i++;                                                   // breakout on 3x volume
+  for (; i < S + 86; i++) { const c = 48.4 + (i - S - 75) * 0.5; b.push(Object.assign(day(i), { o: c, h: c + 0.3, l: c - 0.3, c, v: 1.2e6 })); }  // rally to about 53.4
+  for (; i < S + 93; i++) { const c = 53 - (i - S - 85) * 0.85; b.push(Object.assign(day(i), { o: c + 0.2, h: c + 0.3, l: c - 0.2, c, v: 5e5 })); }  // quiet pullback
+  const last = b.length - 1, x = P.prep(b);
+  let bh = -Infinity; for (let k = S + 60; k < S + 75; k++) bh = Math.max(bh, b[k].h);
+  assert(b[last].l <= bh * 1.01, 'pullback reaches the base top');
+  const s = P.setupsAt(b, x, last).find(z => z.id === 'rbr');
+  assert(s, 'retest found'); near(s.entry, b[last].h + 0.01);
+  // the same pullback on heavy volume does not qualify
+  const b2 = b.map(z => Object.assign({}, z)); for (let k = last - 2; k <= last; k++) b2[k].v = 3e6;
+  assert(!P.setupsAt(b2, P.prep(b2), last).some(z => z.id === 'rbr'), 'heavy-volume pullback rejected');
+  ok();
+}
+
+// bottom watch: capitulation, fear spike, slowing, a rally attempt, a follow-through day on day 4+, and an undercut reset
+{
+  const mkIdx = (after) => { const b = []; let p = 100;
+    for (let i = 0; i < 120; i++) { p *= 1.001; b.push(Object.assign(day(i), { o: p, h: p * 1.004, l: p * 0.996, c: p, v: 1e6 })); }
+    p *= 0.95; b.push(Object.assign(day(120), { o: p / 0.95, h: p / 0.95, l: p * 0.995, c: p, v: 3e6 }));   // capitulation: -5% on 3x volume
+    after.forEach((a, k) => { const prev = b[b.length - 1].c, c = prev * (1 + a[0]); b.push(Object.assign(day(121 + k), { o: prev, h: Math.max(prev, c) * 1.001, l: Math.min(prev, c) * (a[2] || 0.999), c, v: a[1] })); });
+    return b; };
+  const vix = Array.from({ length: 140 }, (_, i) => ({ d: day(i).d, c: i >= 120 ? 28 : 16 }));
+  // day1 +0.4%, day2 +0.2%, day3 +0.1%, day4 +1.6% on higher volume => follow-through
+  const up = mkIdx([[0.004, 9e5], [0.002, 8e5], [0.001, 7e5], [0.016, 1.1e6]]);
+  let w = P.bottomWatch(up, vix, null);
+  assert.equal(w.capitulation.d, day(120).d); assert(w.signs[0] && w.signs[1]);
+  assert(w.rally.ftd && w.rally.ftd.day === 4, 'follow-through on day 4'); assert.equal(w.state, 'confirmed');
+  // a +1.6% day on day 3 is too early
+  w = P.bottomWatch(mkIdx([[0.004, 9e5], [0.002, 8e5], [0.016, 1.1e6]]), vix, null); assert.equal(w.rally.ftd, null); assert.equal(w.rally.earliestFtdIn, 1);
+  // selling slows: three quiet days after capitulation
+  assert(P.bottomWatch(mkIdx([[0.001, 5e5], [-0.001, 5e5], [0.001, 5e5]]), vix, null).slows.ok);
+  // undercut: a new low after day 1 restarts the count from the new low
+  w = P.bottomWatch(mkIdx([[0.004, 9e5], [0.002, 8e5], [-0.03, 1.5e6, 0.98], [0.003, 8e5]]), vix, null);
+  assert.equal(w.rally.lowD, day(123).d); assert.equal(w.rally.dayCount, 1);
+  // no capitulation in a calm market
+  const calm = Array.from({ length: 130 }, (_, i) => Object.assign(day(i), { o: 100, h: 100.5, l: 99.5, c: 100, v: 1e6 }));
+  assert.equal(P.bottomWatch(calm, vix, null).state, 'none');
   ok();
 }
 console.log('playbook tests passed:', n);

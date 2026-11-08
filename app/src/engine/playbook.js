@@ -140,7 +140,7 @@
       if (i >= 4) { let m = Infinity; for (let k = i - 4; k <= i; k++) m = Math.min(m, b[k].l); lo5[i] = m; }
     }
     const hp = hpSeries(c);
-    return { s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
+    return { s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), v20: E.sma(v, 20), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
   }
   const SETUPS = [
     { id: "pullback", label: "Pullback in an uptrend", short: "Pullback", cite: "Short-term reversal (Jegadeesh, 1990; Lehmann, 1990) inside a trend (Moskowitz, Ooi and Pedersen, 2012)",
@@ -153,6 +153,8 @@
       rule: "Volume at least twice the 50-day average, an up close, closing in the upper half of the day's range. Buy above the high; stop under the low." },
     { id: "base", label: "Base breakout after a decline", short: "Base breakout", cite: "Accumulation and breakout (Wyckoff; Weinstein, 1988); measured-move target; tested here, not assumed",
       rule: "The stock fell at least 30% (the base's low against the highest price in the year before the base), then spent 30 sessions inside a range no wider than 25%; today is the first close above the top of that range, on at least 1.5 times the 50-day volume. Buy above the day's high; stop under the base low; target the base top plus the base height." },
+    { id: "rbr", label: "Rally-base-rally retest", short: "Base retest", cite: "Demand-zone retest (practitioner); a pullback entry after a confirmed breakout, tested here",
+      rule: "Within the last 5 to 30 sessions, a 15-session base no wider than 15% broke out on at least 1.5 times the 50-day volume and then rallied at least one base height; today the price has come back to the top of that base (low within 1% of it) without any close below the base, on light volume (last 3 sessions under 0.8 times the 50-day average). Buy above the day's high; stop under the base low; target the rally's high." },
     { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
       rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
@@ -182,6 +184,18 @@
       break;   // only the most recent qualifying gap counts
     }
     if (x.v50[i - 1] != null && b[i].v >= 2 * x.v50[i - 1] && c > b[i - 1].c && b[i].h > b[i].l && (c - b[i].l) >= 0.5 * (b[i].h - b[i].l)) { const entry = b[i].h + 0.01; mk("volume", entry, b[i].l - 0.01, null); }
+    // rally-base-rally retest: breakout from a tight base, a rally away, then a quiet pullback to the top of the base
+    if (i >= 60 && x.v50[i] != null) {
+      for (let j = i - 5; j >= Math.max(16, i - 30); j--) {
+        if (x.v50[j - 1] == null) continue;
+        let bh = -Infinity, bl = Infinity; for (let k = j - 15; k <= j - 1; k++) { bh = Math.max(bh, b[k].h); bl = Math.min(bl, b[k].l); }
+        if (!(bl > 0) || (bh - bl) / bl > 0.15 || !(b[j].c > bh && b[j - 1].c <= bh && b[j].v >= 1.5 * x.v50[j - 1])) continue;
+        let peak = -Infinity, broke = false; for (let k = j; k < i; k++) { peak = Math.max(peak, b[k].h); if (b[k].c < bl) broke = true; }
+        const quiet = (b[i].v + b[i - 1].v + b[i - 2].v) / 3 <= 0.8 * x.v50[i];
+        if (!broke && peak >= bh + (bh - bl) && b[i].l <= bh * 1.01 && c >= bl && quiet) { const entry = b[i].h + 0.01; mk("rbr", entry, bl - 0.01, peak); }
+        break;   // only the most recent breakout counts
+      }
+    }
     // base breakout: a decline, a 30-session rectangle, and the first close above it on heavy volume
     if (i >= 282 && x.v50[i - 1] != null) {
       let H = -Infinity, bh = -Infinity, bl = Infinity;
@@ -231,7 +245,8 @@
         const risk = fill - s.stop; if (!(risk > 0)) continue;
         let open = false; if (exit == null) { j = b.length - 1; exit = b[j].c; why = "Open"; open = true; }
         const R = (exit - fill) / risk - (2 * o.cost * fill) / risk;
-        trades.push({ id: s.id, d: b[k].d, t: b[k].t, fill, stop: s.stop, target: s.target, exit, R, ret: exit / fill - 1 - 2 * o.cost, bars: j - k + 1, why, open });
+        const volUp = x.v20 && x.v20[i] != null && x.v20[i - 20] != null ? x.v20[i] > x.v20[i - 20] : null;   // 20-day average volume higher than 20 sessions earlier
+        trades.push({ id: s.id, d: b[k].d, t: b[k].t, fill, stop: s.stop, target: s.target, exit, R, volUp, ret: exit / fill - 1 - 2 * o.cost, bars: j - k + 1, why, open });
         next[s.id] = j + 1;
       }
     }
@@ -251,7 +266,7 @@
     const split = isFinite(t0) ? new Date(t0 + (t1 - t0) * o.trainShare).toISOString().slice(0, 10) : null;
     const all = []; const bySym = {};
     for (const s of sets) { if (s.bars.length < 270) continue; const tr = simulate(s.bars, s.x || prep(s.bars), o); tr.forEach(t => { t.sym = s.sym; all.push(t); }); bySym[s.sym] = tr; }
-    const rows = SETUPS.map(s => { const tr = all.filter(t => t.id === s.id); return Object.assign({ id: s.id, label: s.label, cite: s.cite }, rSummary(tr), { train: rSummary(tr.filter(t => t.d < split)), test: rSummary(tr.filter(t => t.d >= split)) }); });
+    const rows = SETUPS.map(s => { const tr = all.filter(t => t.id === s.id); return Object.assign({ id: s.id, label: s.label, cite: s.cite }, rSummary(tr), { train: rSummary(tr.filter(t => t.d < split)), test: rSummary(tr.filter(t => t.d >= split)), volUp: rSummary(tr.filter(t => t.volUp === true)), volDown: rSummary(tr.filter(t => t.volUp === false)) }); });
     const srs = rows.map(r => r.sr).filter(v => v != null).concat(o.priorSrs || []);
     const trials = Math.max(rows.length, o.trials || 0), srVar = variance(srs);
     rows.forEach(r => { r.deflated = deflatedSharpe({ sr: r.sr, n: r.n, skew: r.skew, kurt: r.kurt, trials, srVar }); r.verdict = verdictOf(r); });
@@ -399,6 +414,53 @@
     return { R, stop, stopR: (stop - pos.entry) / risk, hi, atr: a, held, todo };
   }
 
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage };
+  /* ---------- Bottom watch: you don't predict bottoms, you confirm them ----------
+     idx: daily bars of an index fund (SPY or QQQ); vix: [{d, c}]; leaders: [{bars}] (optional, e.g. the list's stocks).
+     1 Capitulation: in the last 25 sessions, a day down 2.5% or more on at least 2x the 50-day volume (the latest one).
+     2 Fear spike: the VIX's highest close within 2 sessions of that day is at least 40% above its close 5 sessions before.
+     3 Selling slows: the last 3 sessions' average range is at most 60% of the capitulation day's, and their average
+       volume at most 70% of its volume (needs 3 sessions after it).
+     4 Leaders hold up: of the list's stocks that beat the index over the 63 sessions before capitulation (top third),
+       at least 60% have not traded below their capitulation-day low since.
+     5 Follow-through day (O'Neil): the low is the lowest low since capitulation. Day 1 of a rally attempt is the first
+       up close after that low. On day 4 or later, a close up 1.25% or more on higher volume than the day before
+       confirms. A trade below the low resets the count ("undercut = start over"). */
+  function bottomWatch(idx, vix, leaders) {
+    const n = idx.length, E = En(); if (n < 80) return null;
+    const v50 = E.sma(idx.map(b => b.v), 50), out = { signs: [] };
+    let C = -1; for (let i = n - 1; i >= Math.max(1, n - 25); i--) { if (v50[i - 1] != null && idx[i].c / idx[i - 1].c - 1 <= -0.025 && idx[i].v >= 2 * v50[i - 1]) { C = i; break; } }
+    if (C < 0) { out.capitulation = null; out.signs = [false, false, false, false, false]; out.state = "none"; return out; }
+    const cb = idx[C];
+    out.capitulation = { d: cb.d, ret: cb.c / idx[C - 1].c - 1, volX: cb.v / v50[C - 1], low: cb.l };
+    // 2 fear
+    const vi = new Map(vix.map((x, k) => [x.d, k])), kC = vi.get(cb.d);
+    let fear = null;
+    if (kC != null && kC >= 5) { let hi = -Infinity; for (let k = kC - 2; k <= Math.min(vix.length - 1, kC + 2); k++) hi = Math.max(hi, vix[k].c); fear = { from: vix[kC - 5].c, peak: hi, chg: hi / vix[kC - 5].c - 1 }; }
+    out.fear = fear;
+    // 3 selling slows
+    let slows = null;
+    if (n - 1 - C >= 3) { const last = idx.slice(n - 3), rng = b => b.h - b.l; slows = { rangeRatio: last.reduce((s0, b) => s0 + rng(b), 0) / 3 / rng(cb), volRatio: last.reduce((s0, b) => s0 + b.v, 0) / 3 / cb.v }; slows.ok = slows.rangeRatio <= 0.6 && slows.volRatio <= 0.7; }
+    out.slows = slows;
+    // 4 leaders
+    let lead = null;
+    if (leaders && leaders.length && C >= 63) {
+      const ir = idx[C].c / idx[C - 63].c - 1;
+      const rs = leaders.map(L => { const k = L.bars.findIndex(b => b.d === cb.d); if (k < 63) return null; return { L, k, rs: L.bars[k].c / L.bars[k - 63].c - 1 - ir }; }).filter(Boolean).sort((a, b) => b.rs - a.rs);
+      const top = rs.slice(0, Math.max(1, Math.round(rs.length / 3)));
+      if (top.length >= 3) { const held = top.filter(z => z.L.bars.slice(z.k + 1).every(b => b.l >= z.L.bars[z.k].l)).length; lead = { n: top.length, held, share: held / top.length, ok: held / top.length >= 0.6 }; }
+    }
+    out.leaders = lead;
+    // 5 rally attempt and follow-through
+    let low = C; for (let i = C + 1; i < n; i++) if (idx[i].l < idx[low].l) low = i;
+    let day1 = -1; for (let i = low + 1; i < n; i++) if (idx[i].c > idx[i - 1].c) { day1 = i; break; }
+    let ftd = null;
+    if (day1 > 0) for (let i = day1 + 3; i < n; i++) { if (idx[i].c / idx[i - 1].c - 1 >= 0.0125 && idx[i].v > idx[i - 1].v) { ftd = { d: idx[i].d, ret: idx[i].c / idx[i - 1].c - 1, day: i - day1 + 1 }; break; } }
+    out.rally = { lowD: idx[low].d, low: idx[low].l, day1: day1 > 0 ? idx[day1].d : null, dayCount: day1 > 0 ? n - day1 : 0, earliestFtdIn: day1 > 0 ? Math.max(0, 4 - (n - day1)) : null, ftd };
+    out.signs = [true, !!(fear && fear.chg >= 0.4), !!(slows && slows.ok), !!(lead && lead.ok), !!ftd];
+    out.state = ftd ? "confirmed" : out.signs.slice(0, 4).filter(Boolean).length >= 2 ? "forming" : "early";
+    return out;
+  }
+
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);

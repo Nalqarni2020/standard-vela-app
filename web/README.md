@@ -16,12 +16,12 @@ build.js             writes index.html
 
 | Tab | What it does |
 |---|---|
-| Today | The market gate (S&P against its 200-day, the short-term regime, breadth of your list, the VIX) gives Go, Half size or Stand aside, plus volatility scaling. Your limits: risk per trade, largest position, a daily loss limit that sets every size to zero once reached, and liquidity limits. |
+| Today | The Bottom watch scores the five signs of a market bottom on SPY and QQQ (capitulation, fear spike, selling slows, leaders hold up, follow-through day with its day count and undercut reset). The market gate (S&P against its 200-day, the short-term regime, breadth of your list, the VIX) gives Go, Half size or Stand aside, plus volatility scaling. Your limits: risk per trade, largest position, a daily loss limit that sets every size to zero once reached, and liquidity limits. |
 | Scanner | Four swing setups with buy-above, stop, target, shares and their record; earnings inside the hold and wide spreads are flagged; thin names are skipped. During the session: 5-minute opening-range breakouts on stocks in play, and the SPY and QQQ last-half-hour signal. Save plan stores the trade. |
 | Size a trade | Shares from account × risk × gate ÷ (entry − stop), capped. Earnings warning, liquidity, and a check for holdings that move with it (correlation 0.7 or more over 60 sessions). Saved plans are listed here. |
 | Manage | Each holding in R, its trailing stop (highest high since entry − 3 ATR, break-even after half at 1R), what is due (exit, take half, time, earnings). |
 | My edge | Your round trips by hold time, time of day, the gate, the setup, after a loss, busy days, size and planning, with lessons; trades matched to saved plans in R, with broken stops and overstayed holds. |
-| Evidence | The scanner's exact rules backtested on the list, early and late periods, and a deflated Sharpe ratio that counts every setting you have tried. Six setups: pullback, 52-week high, gap held, volume shock, base breakout after a decline (30% fall, 30-session base no wider than 25%, first close above it on 1.5x volume, measured-move target), and the Hodrick-Prescott trend turn (one-sided filter, no look-ahead). |
+| Evidence | The scanner's exact rules backtested on the list, early and late periods, and a deflated Sharpe ratio that counts every setting you have tried, and each setup's results split by rising or falling 20-day volume at the signal. Seven setups: pullback, 52-week high, gap held, volume shock, rally-base-rally retest (quiet pullback to a broken-out base), base breakout after a decline (30% fall, 30-session base no wider than 25%, first close above it on 1.5x volume, measured-move target), and the Hodrick-Prescott trend turn (one-sided filter, no look-ahead). |
 
 Saved plans are kept in the page's private database (`data/users/<you>`): only you can read them. Where that is not available they are kept in the browser.
 
