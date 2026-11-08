@@ -9,10 +9,14 @@ import { EarningsDesk } from "./desks/EarningsDesk";
 import { AnalystDesk } from "./desks/AnalystDesk";
 import { BookDesk } from "./desks/BookDesk";
 import { PlaybookDesk } from "./desks/PlaybookDesk";
+import { MoversDesk } from "./desks/MoversDesk";
+import { GammaDesk } from "./desks/GammaDesk";
 
-type Desk = "playbook" | "book" | "market" | "pairs" | "analyst" | "filings" | "earnings";
+type Desk = "playbook" | "movers" | "gamma" | "book" | "market" | "pairs" | "analyst" | "filings" | "earnings";
 const LIST: [Desk, string, string][] = [
-  ["playbook", "Playbook", "Market gate, swing setups sized by risk, and their record"],
+  ["playbook", "Playbook", "Market gate, Bottom watch, swing setups sized by risk, and their record"],
+  ["movers", "Movers", "Gainers, losers, most active and gaps, checked and graded for liquidity"],
+  ["gamma", "Gamma", "Options exposure: GEX, VEX, DEX, charm, the King, walls and zero gamma"],
   ["book", "Book", "Journal and risk from your Robinhood activity CSV"],
   ["market", "Market", "Regime, breadth, sectors and the VIX"],
   ["pairs", "Pairs", "Stocks that move together, tested out of sample"],
@@ -30,7 +34,7 @@ export function DesksScreen({ theme, settings }: { theme: Theme; settings: Setti
         <Pressable onPress={() => setDesk(null)} accessibilityRole="button" accessibilityLabel="Back to desks" style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.rule, backgroundColor: theme.sheet }}>
           <Text style={{ color: theme.teal, fontWeight: "600" }}>‹ Desks  <Text style={{ color: theme.ink }}>{title}</Text></Text>
         </Pressable>
-        {desk === "playbook" ? <PlaybookDesk theme={theme} settings={settings} /> : desk === "book" ? <BookDesk theme={theme} settings={settings} /> : desk === "market" ? <MarketDesk theme={theme} settings={settings} /> : desk === "pairs" ? <PairsDesk theme={theme} settings={settings} />
+        {desk === "playbook" ? <PlaybookDesk theme={theme} settings={settings} /> : desk === "movers" ? <MoversDesk theme={theme} settings={settings} /> : desk === "gamma" ? <GammaDesk theme={theme} settings={settings} /> : desk === "book" ? <BookDesk theme={theme} settings={settings} /> : desk === "market" ? <MarketDesk theme={theme} settings={settings} /> : desk === "pairs" ? <PairsDesk theme={theme} settings={settings} />
           : desk === "analyst" ? <AnalystDesk theme={theme} settings={settings} /> : desk === "filings" ? <FilingsDesk theme={theme} settings={settings} /> : <EarningsDesk theme={theme} settings={settings} />}
       </View>);
   }

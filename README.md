@@ -111,3 +111,17 @@ cd app && npx tsc --noEmit
 - Today's daily bar counts as the cash close from 16:16 New York, because history ends 16 minutes ago on the free plan.
 - The New York clock is computed from US daylight-saving rules, because phones' JavaScript engine may lack time-zone data. It is tested against the system time zone from 2008 to 2035.
 - This app reports a written rule. It is not a recommendation to buy or sell. Trading can lose money.
+
+## Phone: Movers, Gamma and the Bottom watch
+
+- **Playbook** gained a **Bottom** tab (the five signs on SPY and QQQ), the seven setups' volume trend, and the
+  rising/falling-volume split in Evidence.
+- **Movers** desk: Alpaca's market-wide gainers, losers and most active (today), gap up and gap down, and your
+  watchlist's 5-day and 1-month movers; each name checked against its daily history and graded for liquidity; and a test
+  of what such moves did next on your watchlist.
+- **Gamma** desk: GEX, VEX, DEX and charm by strike and expiration, the King, walls, zero gamma and expected move
+  (same math as the web desk, `app/src/engine/exposure.js`).
+- New proxy routes: `/v1/movers` (Alpaca screener) and `/v1/options` (contracts with open interest from Alpaca's trading
+  API reference data, plus implied volatility and quotes from its indicative options feed). Both are read-only. The
+  contracts list answers on `paper-api` for paper keys and `api` for live keys; the proxy tries both, or set
+  `ALPACA_TRADING_URL`.

@@ -114,3 +114,16 @@ export async function fetchFacts(s: Settings, symbol: string): Promise<{ name: s
 export async function analystStep(s: Settings, messages: unknown[]): Promise<{ content: any[]; stop_reason: string; stop_details: any }> {
   return get(s, "/v1/analyst", { method: "POST", body: JSON.stringify({ messages }) });
 }
+
+/* Market-wide movers from Alpaca's screener (today only). */
+export type Mover = { symbol: string; pct: number | null; price: number | null };
+export async function fetchMovers(s: Settings): Promise<{ gainers: Mover[]; losers: Mover[]; actives: { symbol: string; volume: number; trades: number }[]; asOf: string | null }> {
+  return get(s, "/v1/movers");
+}
+
+/* Option contracts with open interest, implied volatility and a mark, for the Gamma desk. */
+export type OptionRow = { k: number; type: "call" | "put"; exp: string; oi: number; iv: number | null; mark: number | null };
+export async function fetchOptions(s: Settings, symbol: string, spot: number, from: string, to: string): Promise<{ rows: OptionRow[]; oiDate: string | null; truncated: boolean }> {
+  const d = await get(s, "/v1/options?symbol=" + encodeURIComponent(symbol) + "&spot=" + spot.toFixed(2) + "&from=" + from + "&to=" + to);
+  return { rows: (d.rows || []).map(([k, t, exp, oi, iv, mark]: [number, string, string, number, number | null, number | null]) => ({ k, type: t === "p" ? "put" : "call", exp, oi, iv, mark })), oiDate: d.oiDate || null, truncated: !!d.truncated };
+}

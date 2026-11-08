@@ -11,13 +11,14 @@
  *   SEC_USER_AGENT   "Your Name your@email" (the SEC requires a contact in every request)
  *   ANTHROPIC_API_KEY  for the Analyst
  *
- * Routes (GET, except POST /v1/analyst): /v1/bars, /v1/snapshots, /v1/news, /v1/vix, /v1/sec/filings, /v1/sec/facts, /v1/analyst
+ * Routes (GET, except POST /v1/analyst): /v1/bars, /v1/snapshots, /v1/news, /v1/vix, /v1/sec/filings, /v1/sec/facts, /v1/movers, /v1/options, /v1/analyst
  *   /v1/bars?symbols=AAPL,SPY&tf=day|5min&days=N   -> { bars: { AAPL: [[tMs,o,h,l,c,v], ...] }, delayedMinutes }
  *   /v1/snapshots?symbols=AAPL,SPY                  -> { quotes: { AAPL: { last, lastTime, bid, ask, prevClose, ... } } }
  */
 
 import { filings, facts, SecError } from "./sec.js";
 import { analyst } from "./analyst.js";
+import { movers, options, ProviderError } from "./market.js";
 
 const ALPACA = "https://data.alpaca.markets/v2";
 const SYMBOL = /^[A-Z][A-Z0-9.]{0,9}$/;
@@ -70,10 +71,22 @@ export async function handle(request, env, now = Date.now(), fetchImpl = fetch) 
     } catch (e) { return json({ error: "provider", message: e instanceof SecError ? e.message + "." : "Could not reach the SEC." }, 502); }
   }
 
+  const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY_ID, "APCA-API-SECRET-KEY": env.ALPACA_SECRET, Accept: "application/json" };
+
+  if (url.pathname === "/v1/movers") {
+    try { return json(await movers(headers, fetchImpl)); } catch (e) { if (e instanceof ProviderError) return upstream(e.status); throw e; }
+  }
+  if (url.pathname === "/v1/options") {
+    const one = parseSymbols(url.searchParams.get("symbol"));
+    if (!one || one.length !== 1) return json({ error: "bad_request", message: "symbol must be one US ticker." }, 400);
+    try {
+      const d = await options({ symbol: one[0], spot: Number(url.searchParams.get("spot")), from: url.searchParams.get("from") || "", to: url.searchParams.get("to") || "" }, env, headers, fetchImpl, now);
+      return d.error ? json(d, 400) : json(d);
+    } catch (e) { if (e instanceof ProviderError) return upstream(e.status); throw e; }
+  }
+
   const symbols = parseSymbols(url.searchParams.get("symbols"));
   if (!symbols) return json({ error: "bad_request", message: "symbols must be 1 to " + MAX_SYMBOLS + " US tickers, comma separated." }, 400);
-
-  const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY_ID, "APCA-API-SECRET-KEY": env.ALPACA_SECRET, Accept: "application/json" };
 
   if (url.pathname === "/v1/bars") {
     const tf = url.searchParams.get("tf");

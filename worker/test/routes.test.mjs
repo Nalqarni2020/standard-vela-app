@@ -86,3 +86,34 @@ test("analyst: maps Claude errors without leaking details", async () => {
   const r = await handle(post("/v1/analyst", { messages: [{ role: "user", content: "x" }] }), env, NOW, async () => J({ type: "error", error: { type: "rate_limit_error", message: "slow down" } }, 429));
   assert.equal(r.status, 429); assert.equal((await r.json()).error, "rate_limited");
 });
+
+test("movers: maps gainers, losers and most actives; drops odd symbols; percent to a fraction", async () => {
+  const seen = [];
+  const r = await handle(get("/v1/movers"), env, NOW, async (url, init) => {
+    seen.push(String(url)); assert.equal(init.headers["APCA-API-KEY-ID"], "kid");
+    if (String(url).includes("/movers")) return J({ gainers: [{ symbol: "APP", percent_change: 12.5, price: 391.2 }, { symbol: "BAD/W", percent_change: 99, price: 1 }], losers: [{ symbol: "MCHP", percent_change: -10, price: 58.35 }], last_updated: "2026-11-06T21:00:00Z" });
+    return J({ most_actives: [{ symbol: "NVDA", volume: 180212285, trade_count: 900000 }] });
+  });
+  const d = await r.json();
+  assert.equal(d.gainers.length, 1); assert.equal(d.gainers[0].pct, 0.125); assert.equal(d.losers[0].symbol, "MCHP"); assert.equal(d.actives[0].volume, 180212285);
+  assert.ok(seen.some(u => /most-actives\?by=volume/.test(u)));
+});
+
+test("options: validates input, falls back from paper to live keys, merges open interest with snapshots", async () => {
+  let r = await handle(get("/v1/options?symbol=SPY&spot=0&from=2026-11-09&to=2026-11-13"), env, NOW, () => { throw new Error("must not call"); });
+  assert.equal(r.status, 400);
+  r = await handle(get("/v1/options?symbol=SPY&spot=700&from=2026-11-09&to=2027-02-01"), env, NOW, () => { throw new Error("must not call"); });
+  assert.equal(r.status, 400);
+  const seen = [];
+  r = await handle(get("/v1/options?symbol=SPY&spot=700&from=2026-11-09&to=2026-11-13"), env, NOW, async url => {
+    const u = String(url); seen.push(u);
+    if (u.startsWith("https://paper-api")) return J({}, 403);
+    if (u.startsWith("https://api.alpaca.markets/v2/options/contracts")) { assert.match(u, /strike_price_gte=560\.00/); assert.match(u, /strike_price_lte=840\.00/);
+      return J({ option_contracts: [{ symbol: "SPY261109C00700000", type: "call", strike_price: "700", expiration_date: "2026-11-09", open_interest: "1200", open_interest_date: "2026-11-06", close_price: "3.1" }, { symbol: "SPY261109P00690000", type: "put", strike_price: "690", expiration_date: "2026-11-09", open_interest: "0" }] }); }
+    assert.match(u, /v1beta1\/options\/snapshots\/SPY\?feed=indicative/);
+    return J({ snapshots: { SPY261109C00700000: { latestQuote: { bp: 3.0, ap: 3.2 }, impliedVolatility: 0.21 } } });
+  });
+  const d = await r.json();
+  assert.deepEqual(d.rows, [[700, "c", "2026-11-09", 1200, 0.21, 3.1]]); assert.equal(d.oiDate, "2026-11-06");
+  assert.ok(seen[0].startsWith("https://paper-api"));
+});

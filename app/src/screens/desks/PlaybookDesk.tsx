@@ -6,27 +6,27 @@ import { Settings, watchlistSymbols } from "../../settings";
 import { Theme, px, pct, int, money, mono } from "../../theme";
 import { Card, Pill, KV, Banner, Seg } from "../../ui";
 
-/* The swing parts of the web desk's Playbook: the market gate, the four setups on your watchlist with entries,
-   stops and risk-based sizes, and how each setup did on your watchlist's last three years. The phone's prices end
-   16 minutes ago, so day setups stay on the web desk. Same rules and code as the web desk. */
+/* The swing parts of the web desk's Playbook: the market gate, the Bottom watch on SPY and QQQ, the seven setups on
+   your watchlist with entries, stops and risk-based sizes, and how each setup did on your watchlist's last three years.
+   The phone's prices end 16 minutes ago, so day setups stay on the web desk. Same rules and code as the web desk. */
 const VERD: Record<string, [string, boolean | null, string]> = {
   go: ["Go", true, "Full size."], half: ["Half size", null, "Trade smaller: the market is mixed."], aside: ["Stand aside", false, "No new longs: the market is against them."],
 };
 const LIQ = { minPrice: 5, minDollarVol: 5e6 };
 const R = (v: number | null | undefined) => v == null || !isFinite(v) ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
 
-type Data = { gate: any; sets: { sym: string; bars: Bar[]; x: any }[]; ev: any; asOf: string };
+type Data = { gate: any; sets: { sym: string; bars: Bar[]; x: any }[]; ev: any; asOf: string; bw: [string, any][] };
 
 export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Settings }) {
   const [data, setData] = useState<Data | null>(null), [err, setErr] = useState<string | null>(null), [busy, setBusy] = useState(false), [prog, setProg] = useState("");
-  const [riskTxt, setRiskTxt] = useState("1"), [view, setView] = useState<"scan" | "gate" | "evidence">("scan");
+  const [riskTxt, setRiskTxt] = useState("1"), [view, setView] = useState<"scan" | "gate" | "bottom" | "evidence">("scan");
   const uni = watchlistSymbols(settings).slice(0, 60);
   const riskPct = Math.min(5, Math.max(0.1, Number(riskTxt) || 1));
 
   const run = useCallback(async () => {
     setBusy(true); setErr(null);
     try {
-      const [m, vix] = await Promise.all([dailyMany(settings, ["SPY"], 1100), fetchVix(settings).catch(() => [])]);
+      const [m, vix] = await Promise.all([dailyMany(settings, ["SPY", "QQQ"], 1100), fetchVix(settings).catch(() => [])]);
       const bars = uni.length ? await dailyMany(settings, uni, 1100, (i, n) => setProg(`History ${i} of ${n}`)) : {};
       setProg("Testing the setups…");
       await new Promise(r => setTimeout(r, 0));
@@ -36,8 +36,10 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       const spy = m.SPY || [];
       if (spy.length < 210) throw new Error("Not enough S&P history came back.");
       const gate = Playbook.gate(spy, vix, pct50);
-      const ev = sets.length ? Playbook.evidence(sets, { hold: 10, cost: 0.0005, liq: LIQ, trials: 4 }) : null;
-      setData({ gate, sets, ev, asOf: spy[spy.length - 1].d });
+      const ev = sets.length ? Playbook.evidence(sets, { hold: 10, cost: 0.0005, liq: LIQ, trials: Playbook.SETUPS.length }) : null;
+      const leaders = sets.map(z => ({ bars: z.bars }));
+      const bw: [string, any][] = [["SPY", Playbook.bottomWatch(spy, vix, leaders)], ["QQQ", (m.QQQ || []).length > 60 ? Playbook.bottomWatch(m.QQQ, vix, leaders) : null]];
+      setData({ gate, sets, ev, asOf: spy[spy.length - 1].d, bw });
     } catch (e: any) { setErr(e instanceof ApiError ? e.message : e?.message || "Could not read the data."); }
     finally { setBusy(false); setProg(""); }
   }, [settings]);
@@ -51,7 +53,8 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       const i = s.bars.length - 1;
       Playbook.setupsAt(s.bars, s.x, i, LIQ).forEach((h: any) => {
         const plan = Playbook.sizePlan({ account: settings.account, riskPct: riskPct / 100, mult: data.gate.sizeMult, entry: h.entry, stop: h.stop, capPct: settings.capPct / 100 });
-        out.push({ ...h, sym: s.sym, last: s.bars[i].c, atr: s.x.atr[i], plan, list: evRows[h.id] });
+        const volUp = s.x.v20[i] != null && s.x.v20[i - 20] != null ? s.x.v20[i] > s.x.v20[i - 20] : null;
+        out.push({ ...h, sym: s.sym, last: s.bars[i].c, atr: s.x.atr[i], plan, list: evRows[h.id], volUp });
       });
     });
     return out.sort((a, b) => ((b.list && b.list.expR) ?? -9) - ((a.list && a.list.expR) ?? -9));
@@ -78,6 +81,20 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
           </View>))}
         <Text style={{ color: theme.ink3, fontSize: 12, padding: 14 }}>Score {g.score > 0 ? "+" : ""}{g.score}. Go needs +2 or better with the S&P above its 200-day and the VIX at 30 or lower; stand aside at −1 or worse or with the VIX above 35; otherwise half size.{g.volScale < 1 ? ` Sizes are also scaled by ${g.volScale.toFixed(2)} because the VIX is above its one-year median.` : ""} The VIX here is the St. Louis Fed's daily close and can lag a day.</Text>
       </Card></>);
+    else if (view === "bottom") body = (<>{head}
+      {data.bw.map(([name, w]) => (
+        <Card key={name} theme={theme} title={"Bottom watch · " + name} right={<Pill theme={theme} ok={w && w.state === "confirmed" ? true : null} text={!w ? "No data" : w.state === "confirmed" ? "Confirmed" : w.state === "forming" ? "May be forming" : w.state === "early" ? "Early" : "No bottom process"} />}>
+          {!w || !w.capitulation ? <Text style={{ color: theme.ink3, padding: 14 }}>No capitulation day (down 2.5% or more on twice the 50-day volume) in the last 25 sessions.</Text> : (
+            <KV theme={theme} items={[
+              ["1 Capitulation", w.capitulation.d + " · " + pct(w.capitulation.ret) + " on " + w.capitulation.volX.toFixed(1) + "× volume"],
+              ["2 Fear spike", (w.signs[1] ? "Yes" : "Not yet") + (w.fear ? " · VIX " + px(w.fear.from) + " → " + px(w.fear.peak) + " (" + pct(w.fear.chg) + ")" : "")],
+              ["3 Selling slows", w.slows ? (w.signs[2] ? "Yes" : "Not yet") + " · range " + (w.slows.rangeRatio * 100).toFixed(0) + "%, volume " + (w.slows.volRatio * 100).toFixed(0) + "%" : "Needs 3 sessions after it"],
+              ["4 Leaders hold", w.leaders ? (w.signs[3] ? "Yes" : "Not yet") + " · " + w.leaders.held + " of " + w.leaders.n : "Add tickers to your watchlist"],
+              ["5 Follow-through", w.rally.ftd ? "Yes · " + w.rally.ftd.d + ", day " + w.rally.ftd.day + ", " + pct(w.rally.ftd.ret) : (w.rally.day1 ? "Rally day " + w.rally.dayCount + (w.rally.earliestFtdIn ? " · earliest in " + w.rally.earliestFtdIn + " session" + (w.rally.earliestFtdIn === 1 ? "" : "s") : "") : "No up close since the low")],
+              ["Restarts below", px(w.rally.low)]]} />)}
+        </Card>))}
+      <Text style={{ color: theme.ink3, fontSize: 12, marginBottom: 12 }}>You don't predict bottoms, you confirm them. Signs 1 to 4 say a bottom may be forming; only a follow-through day (day 4 or later of a rally attempt, up 1.25% or more on higher volume) confirms, and many fail, so start small. The VIX here is the St. Louis Fed's daily close and can lag a day.</Text>
+    </>);
     else if (view === "evidence") body = (<>{head}
       {data.ev ? <Card theme={theme} title="How the setups did" right={<Text style={{ color: theme.ink3, fontSize: 11 }}>{data.ev.names} NAMES</Text>}>
         {data.ev.rows.map((r: any) => (
@@ -87,8 +104,9 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
               <Pill theme={theme} ok={r.verdict.key === "holds" ? true : r.verdict.key === "no" ? false : null} text={r.verdict.key === "holds" ? "Held up" : r.verdict.key === "no" ? "Did not pay" : r.verdict.key === "thin" ? "Too few" : "Unproven"} />
             </View>
             <Text style={[{ color: theme.ink2, fontSize: 13, marginTop: 3 }, mono as TextStyle]}>{r.n} trades · avg {R(r.expR)} · first 70% {R(r.train.expR)} · last 30% {R(r.test.expR)} · deflated Sharpe {r.deflated ? (r.deflated.dsr * 100).toFixed(0) + "%" : "—"}</Text>
+            {r.volUp ? <Text style={[{ color: theme.ink3, fontSize: 12, marginTop: 2 }, mono as TextStyle]}>Rising volume {R(r.volUp.expR)} ({r.volUp.n}) · falling volume {R(r.volDown.expR)} ({r.volDown.n})</Text> : null}
           </View>))}
-        <Text style={{ color: theme.ink3, fontSize: 12, padding: 14 }}>The exact scanner rules on about three years of your watchlist: buy-stop next session, stop as planned, target or a 10-day time exit, 5 basis points a side. Above +0.1R a trade is useful; the deflated Sharpe is the chance the edge is real after allowing for trying several setups. The web desk's Evidence tab counts every setting you try.</Text>
+        <Text style={{ color: theme.ink3, fontSize: 12, padding: 14 }}>The exact scanner rules on about three years of your watchlist: buy-stop next session, stop as planned, target or a 10-day time exit, 5 basis points a side. Rising or falling volume: the 20-day average volume against 20 sessions earlier, when the trade was taken. Above +0.1R a trade is useful; the deflated Sharpe is the chance the edge is real after allowing for trying several setups. The web desk's Evidence tab counts every setting you try.</Text>
       </Card> : <Text style={{ color: theme.ink3 }}>Add tickers to your watchlist in Settings.</Text>}</>);
     else body = (<>{head}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -98,14 +116,14 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       </View>
       {hits.length ? hits.map((h, k) => (
         <Card key={h.sym + h.id + k} theme={theme} title={h.sym} right={<Text style={{ color: theme.ink3, fontSize: 11 }}>{(Playbook.SETUPS.find((z: any) => z.id === h.id) || {}).short?.toUpperCase()}</Text>}>
-          <KV theme={theme} items={[["Buy above", px(h.entry)], ["Stop", px(h.stop) + " · " + (h.risk / h.atr).toFixed(1) + " ATR"], ["Target", px(h.target)], ["Shares", h.plan.shares ? int(h.plan.shares) : g.verdict === "aside" ? "Stand aside" : "—"], ["At risk", h.plan.shares ? money(h.plan.riskDollars) : "—"], ["Setup on your list", h.list && h.list.n ? R(h.list.expR) + " · " + h.list.n : "—"]]} />
+          <KV theme={theme} items={[["Buy above", px(h.entry)], ["Stop", px(h.stop) + " · " + (h.risk / h.atr).toFixed(1) + " ATR"], ["Target", px(h.target)], ["Shares", h.plan.shares ? int(h.plan.shares) : g.verdict === "aside" ? "Stand aside" : "—"], ["At risk", h.plan.shares ? money(h.plan.riskDollars) : "—"], ["Setup on your list", h.list && h.list.n ? R(h.list.expR) + " · " + h.list.n : "—"], ["Volume trend", h.volUp == null ? "—" : h.volUp ? "Rising" : "Falling"]]} />
         </Card>)) : <Text style={{ color: theme.ink3, marginBottom: 12 }}>No setups on the last close{uni.length ? "" : ": add tickers to your watchlist in Settings"}.</Text>}
       <Text style={{ color: theme.ink3, fontSize: 12, marginBottom: 12 }}>Buy-stop orders for the next session; an order not filled that day is cancelled. Names under $5 or trading under $5 million a day are skipped. Check earnings dates before holding a swing trade. The web desk's Playbook flags them, trails your stops on its Manage tab and checks saved plans against your fills.</Text>
     </>);
   }
   return (
     <ScrollView style={{ backgroundColor: theme.paper }} contentContainerStyle={{ padding: 16 }} refreshControl={<RefreshControl refreshing={busy} onRefresh={run} tintColor={theme.teal} />}>
-      <View style={{ marginBottom: 12 }}><Seg theme={theme} value={view} onChange={setView} options={[{ v: "scan", label: "Setups" }, { v: "gate", label: "Gate" }, { v: "evidence", label: "Evidence" }]} /></View>
+      <View style={{ marginBottom: 12 }}><Seg theme={theme} value={view} onChange={setView} options={[{ v: "scan", label: "Setups" }, { v: "gate", label: "Gate" }, { v: "bottom", label: "Bottom" }, { v: "evidence", label: "Evidence" }]} /></View>
       {err ? <Banner theme={theme} text={err} bad /> : null}
       {body || <Text style={{ color: theme.ink3 }}>{busy ? (prog || "Reading…") : ""}</Text>}
       <Text style={{ color: theme.ink3, fontSize: 11, marginBottom: 24 }}>Daily closes; the free data plan ends 16 minutes ago. A report of written rules, not a recommendation. Read-only: nothing here places an order.</Text>
