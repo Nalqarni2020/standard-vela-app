@@ -36,6 +36,11 @@
     const syms = [...new Set(await D.listSymbols(id))].slice(0, 60);
     const bars = await D.dailyBars(syms, 1100, (i, n) => msg && msg(`Reading history ${i} of ${n}…`));
     sets = syms.map(sym => ({ sym, bars: bars[sym] || [] })).filter(s => s.bars.length >= 60).map(s => Object.assign(s, { x: P.prep(s.bars) }));
+    // earnings history for the drift setup
+    for (let i = 0; i < sets.length; i += 6) {
+      msg && msg(`Reading earnings history ${Math.min(i + 6, sets.length)} of ${sets.length}…`);
+      await Promise.all(sets.slice(i, i + 6).map(async z => { const res = await earnRes(z.sym); z.x.earn = res ? P.earnEvents(z.bars, res) : []; }));
+    }
     setsKey = key; ev = null; return sets;
   }
   const liq = () => ({ minPrice: +cfg.minPrice || 0, minDollarVol: (+cfg.minDvM || 0) * 1e6 });
@@ -92,13 +97,35 @@
     },
   };
   /* Next earnings report per symbol, from Robinhood's per-symbol earnings (cached for the page's life). */
-  const repCache = new Map();
+  const repCache = new Map(), earnCache = new Map();
+  /* Robinhood's last 8 quarters of earnings for one symbol (estimate, actual, report date and timing), cached. */
+  function earnRes(sym) { if (!earnCache.has(sym)) earnCache.set(sym, call("get_earnings_results", { symbol: sym }, 6 * 3600000).then(d => (d && d.results) || []).catch(() => null)); return earnCache.get(sym); }
   async function nextRep(sym) {
     if (!repCache.has(sym)) repCache.set(sym, (async () => {
-      try { const d = await call("get_earnings_results", { symbol: sym }, 6 * 3600000); const n = nyNow(); return P.nextReport(((d && d.results) || []).map(r => ({ date: r.report && r.report.date, timing: r.report && r.report.timing })), n.date, n.min); }
-      catch (e) { return undefined; }
+      const res = await earnRes(sym); if (!res) return undefined; const n = nyNow();
+      return P.nextReport(res.map(r => ({ date: r.report && r.report.date, timing: r.report && r.report.timing })), n.date, n.min);
     })());
     return repCache.get(sym);
+  }
+  /* Realized sales on Robinhood over the last 3 months (for the wash-sale check), cached for the page's life. */
+  let salesP = null;
+  function recentSales() {
+    if (!salesP) salesP = (async () => { await account().catch(() => {}); if (!acct) return []; let out = [], cursor = null, pages = 0;
+      do { const d = await call("get_pnl_trade_history", Object.assign({ account_number: acct, span: "3month" }, cursor ? { cursor } : {}), 600000).catch(() => null); out = out.concat((d && d.trades) || []); cursor = d && d.next_cursor ? d.next_cursor : null; pages++; } while (cursor && pages < 10);
+      return out; })();
+    return salesP;
+  }
+  /* Signals log and decisions: this page's database. Every Scanner run (and the daily report) saves its setups here, and
+     the Evidence tab follows each one forward. */
+  let sdbP = null; const sigDb = () => sdbP || (sdbP = (async () => { try { const c = window.claude; return c && c.use ? await c.use("db") : null; } catch (e) { return null; } })());
+  async function logSignals(hits) {
+    const db = await sigDb(); if (!db) return null; let n = 0;
+    for (const h of hits) {
+      const id = `${h.d}_${h.sym}_${h.id}`.replace(/[^A-Za-z0-9_.\-]/g, "-"), ref = db.collection("signals").doc(id);
+      try { const cur = await ref.get(); if (cur.exists) continue; const S = P.SETUPS.find(z => z.id === h.id);
+        await ref.set({ sym: h.sym, setup: h.id, date: h.d, entry: +h.entry.toFixed(2), stop: +h.stop.toFixed(2), target: isFinite(h.target) ? +h.target.toFixed(2) : null, hold: S.trend ? S.maxHold : S.hold || +cfg.hold, gate: gateRes ? gateRes.verdict : null, logged: new Date().toISOString(), source: "desk" }); n++; } catch (e) { /* skip */ }
+    }
+    return n;
   }
   const repText = r => r === undefined ? "unknown" : r === null ? "none listed" : `${r.date} ${r.timing === "am" ? "before the open" : r.timing === "pm" ? "after the close" : ""}`.trim();
   const repCell = r => r === undefined ? '<span class="muted">?</span>' : r === null ? '<span class="muted">—</span>' : P.earningsInside(r, +cfg.hold) ? `<span class="pill fail" title="${esc(repText(r))}">In ${r.gapIn} session${r.gapIn === 1 ? "" : "s"}</span>` : `<span class="muted" title="${esc(repText(r))}">${esc(r.date.slice(5))}</span>`;
@@ -252,6 +279,7 @@
   }
   let scanHits = [];
   // Robinhood consensus: share of Buy ratings and the average target against the entry.
+  const insCell = c => !c ? '<span class="muted">—</span>' : c.latest && Date.now() - Date.parse(c.latest.end) < 120 * 864e5 ? `<span class="pill pass" title="${esc(c.latest.insiders + " insiders, about " + money(c.latest.value) + ", " + c.latest.d + (c.latest.end !== c.latest.d ? " to " + c.latest.end : ""))}">Cluster ${esc(c.latest.end.slice(5))}</span>` : c.buys ? `<span class="muted">${c.buys} buy${c.buys === 1 ? "" : "s"}</span>` : '<span class="muted">none</span>';
   const anCell = (a, px0) => !a || !a.n ? '<span class="muted">—</span>' : `<span title="${esc(a.buy + " buy, " + a.hold + " hold, " + a.sell + " sell; targets " + (a.low ?? "—") + " to " + (a.high ?? "—"))}">${Math.round(a.buy / a.n * 100)}% buy${a.mean ? ` · <span class="chg ${a.mean >= px0 ? "up" : "down"}">${pct(a.mean / px0 - 1)}</span>` : ""}</span>`;
   async function scan(box) {
     const out = box.querySelector("#pbScanOut"), btn = box.querySelector("#pbScanRun"); btn.disabled = true;
@@ -270,16 +298,21 @@
       const hs = [...new Set(hits.map(x => x.sym))].slice(0, 30), reps = {}; await Promise.all(hs.map(async sy => { reps[sy] = await nextRep(sy); }));
       const qs = sessionNow() && hs.length ? await D.quotes(hs).catch(() => ({})) : {};
       const an = await D.rhAnalyst(hs).catch(() => ({}));
-      hits.forEach(x => { x.an = an[x.sym]; x.rep = reps[x.sym]; const q = qs[x.sym]; x.spread = q && q.bid > 0 && q.ask > q.bid ? (q.ask - q.bid) / ((q.ask + q.bid) / 2) : null; });
+      busy(out, "Checking insider buying and recent sales…");
+      const rs = P.rsRanks(st), ins = {}, sales = await recentSales().catch(() => []);
+      for (let i = 0; i < hs.length; i += 4) await Promise.all(hs.slice(i, i + 4).map(async sy => { const t = await D.wb.insiders(sy).catch(() => null); ins[sy] = t ? P.insiderClusters(t) : null; }));
+      const nowMs = Date.now();
+      hits.forEach(x => { x.an = an[x.sym]; x.rep = reps[x.sym]; const q = qs[x.sym]; x.spread = q && q.bid > 0 && q.ask > q.bid ? (q.ask - q.bid) / ((q.ask + q.bid) / 2) : null;
+        x.rs = rs[x.sym]; x.ins = ins[x.sym]; x.wash = P.washSale(sales, x.sym, nowMs); });
       scanHits = hits;
       const [gname, gcls] = VERD[gateRes.verdict];
       let h = `<p class="verdict-line" style="font-size:18px"><span class="pill ${gcls}" style="vertical-align:middle">${esc(gname)}</span> ${esc(`${hits.length} swing setup${hits.length === 1 ? "" : "s"} on ${st.length} names, from closes to ${st[0] ? st[0].bars[st[0].bars.length - 1].d : "—"}. ` + (locked() ? "Sizes are zero: the daily loss limit is reached." : `Sizes use ${mult().toFixed(2)}× of your ${cfg.riskPct}% risk.`))}</p>`;
       h += `<div class="panel"><div class="ph"><h2>Swing setups</h2><span class="eyebrow">Buy-stop orders for the next session</span></div>
-        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Setup</th><th>Last close</th><th>Buy above</th><th>Stop</th><th>Target</th><th>Reward : risk</th><th>Shares</th><th>Risk</th><th>Setup on the list</th><th>On this name</th><th>Volume trend</th><th>Earnings</th><th>Analysts</th><th></th></tr></thead><tbody>
+        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Setup</th><th>Last close</th><th>Buy above</th><th>Stop</th><th>Target</th><th>Reward : risk</th><th>Shares</th><th>Risk</th><th>Setup on the list</th><th>On this name</th><th>Volume trend</th><th>RS rank</th><th>Insiders</th><th>Earnings</th><th>Analysts</th><th></th></tr></thead><tbody>
         ${hits.length ? hits.map(x => `<tr class="clickable" tabindex="0" data-sym="${esc(x.sym)}"><td><b>${esc(x.sym)}</b></td><td>${esc(P.SETUPS.find(s => s.id === x.id).short)}</td><td>${px(x.last)}</td><td>${px(x.entry)}</td><td>${px(x.stop)} <span class="muted">${(x.risk / x.atr).toFixed(1)} ATR</span></td><td>${x.trend ? '<span class="muted">Trend exit</span>' : px(x.target)}</td><td>${x.rr == null ? '<span class="muted">open</span>' : x.rr.toFixed(1)}</td><td>${sharesCell(x.plan)}</td><td>${x.plan.shares ? money(x.plan.riskDollars) : "—"}</td>
-          <td>${x.list && x.list.n ? `<span class="chg ${x.list.expR >= 0 ? "up" : "down"}">${R(x.list.expR)}</span> <span class="muted">${x.list.n}</span> <span class="pill ${SHORTV[x.list.verdict.key][1]}" title="${esc(x.list.verdict.text)}">${SHORTV[x.list.verdict.key][0]}</span>` : "—"}</td><td>${x.mine ? `<span class="chg ${x.mine.expR >= 0 ? "up" : "down"}">${R(x.mine.expR)}</span> <span class="muted">${x.mine.n}</span>` : '<span class="muted">none</span>'}</td><td>${x.volUp == null ? "—" : x.volUp ? '<span class="chg up" title="20-day average volume above its level 20 sessions ago">Rising</span>' : '<span class="chg down" title="20-day average volume below its level 20 sessions ago">Falling</span>'}</td><td>${repCell(x.rep)}${x.spread != null && x.spread * 100 > cfg.maxSpread ? ` <span class="pill fail" title="Bid-ask spread now">Spread ${(x.spread * 100).toFixed(1)}%</span>` : ""}</td><td>${anCell(x.an, x.entry)}</td><td><button class="btn small" type="button" data-plan="${hits.indexOf(x)}">Save plan</button></td></tr>`).join("") : '<tr><td colspan="15" class="muted">No setups on the last close.</td></tr>'}
+          <td>${x.list && x.list.n ? `<span class="chg ${x.list.expR >= 0 ? "up" : "down"}">${R(x.list.expR)}</span> <span class="muted">${x.list.n}</span> <span class="pill ${SHORTV[x.list.verdict.key][1]}" title="${esc(x.list.verdict.text)}">${SHORTV[x.list.verdict.key][0]}</span>` : "—"}</td><td>${x.mine ? `<span class="chg ${x.mine.expR >= 0 ? "up" : "down"}">${R(x.mine.expR)}</span> <span class="muted">${x.mine.n}</span>` : '<span class="muted">none</span>'}</td><td>${x.volUp == null ? "—" : x.volUp ? '<span class="chg up" title="20-day average volume above its level 20 sessions ago">Rising</span>' : '<span class="chg down" title="20-day average volume below its level 20 sessions ago">Falling</span>'}</td><td>${x.rs ? `<span class="chg ${x.rs.rank >= 70 ? "up" : x.rs.rank <= 30 ? "down" : ""}" title="12-month return skipping the last month: ${esc(pct(x.rs.m))}">${x.rs.rank}</span>` : "—"}</td><td>${insCell(x.ins)}</td><td>${repCell(x.rep)}${x.wash && x.wash.risk ? ` <span class="pill fail" title="Sold at a loss on ${esc(x.wash.lastSale)} (${esc(money(x.wash.loss))}). Buying again before ${esc(x.wash.clearAfter)} defers that loss for taxes.">Wash sale until ${esc(x.wash.clearAfter.slice(5))}</span>` : ""}${x.spread != null && x.spread * 100 > cfg.maxSpread ? ` <span class="pill fail" title="Bid-ask spread now">Spread ${(x.spread * 100).toFixed(1)}%</span>` : ""}</td><td>${anCell(x.an, x.entry)}</td><td><button class="btn small" type="button" data-plan="${hits.indexOf(x)}">Save plan</button></td></tr>`).join("") : '<tr><td colspan="17" class="muted">No setups on the last close.</td></tr>'}
         </tbody></table></div>
-        <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. Volume trend: the 20-day average volume against its level 20 sessions earlier; on your list, setups taken with rising volume have done better (see Evidence). Analysts: Robinhood's share of Buy ratings and the average price target against the entry; context, not a rule. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
+        <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. RS rank: the 12-month return skipping the last month, ranked 1 to 99 across the list (momentum; Jegadeesh and Titman, 1993). Insiders: two or more different insiders buying on the open market within 30 days (grants and option awards excluded; Cohen, Malloy and Pomorski, 2012). A wash-sale pill means you sold this stock at a loss on Robinhood in the last 30 days: buying it back before the date shown defers that loss for US taxes (two funds on the same stock may also count; ask a tax adviser). Every setup shown is saved to the signals log and followed forward on the Evidence tab. Volume trend: the 20-day average volume against its level 20 sessions earlier; on your list, setups taken with rising volume have done better (see Evidence). Analysts: Robinhood's share of Buy ratings and the average price target against the entry; context, not a rule. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
       out.innerHTML = h + '<div id="pbDayBox" style="margin-top:18px"></div>';
       out.querySelectorAll("button[data-plan]").forEach(b => b.onclick = async () => {
         const x = scanHits[+b.dataset.plan]; b.disabled = true;
@@ -287,6 +320,7 @@
         catch (e) { b.disabled = false; b.textContent = "Not saved"; }
       });
       btn.disabled = false;
+      logSignals(hits).then(nn => { const el = box.querySelector("#pbScanNote"); if (el && nn != null) el.textContent = nn ? `${nn} new signal${nn === 1 ? "" : "s"} saved to the forward record` : "Signals already in the forward record"; }).catch(() => {});
       dayScan(out.querySelector("#pbDayBox"), st.map(s => s.sym));
     } catch (e) { fail(out, e); btn.disabled = false; }
   }
@@ -499,7 +533,20 @@
         <div class="scroll"><table class="dt"><thead><tr><th>Group</th><th>Cases</th><th>Next 3 months, average</th><th>vs the list (3 months)</th><th>Next 12 months, average</th><th>vs the list (12 months)</th><th>Up after 12 months</th></tr></thead><tbody>
         ${S0.rows.map(r => `<tr><td><b>${esc(r.label)}</b></td><td>${r.n}</td><td>${r.h[63].avg == null ? "—" : pct(r.h[63].avg)}</td><td>${r.id === "all" ? "—" : cell(r.h[63])}</td><td>${r.h[252].avg == null ? "—" : pct(r.h[252].avg)}</td><td>${r.id === "all" ? "—" : cell(r.h[252])}</td><td>${r.h[252].win == null ? "—" : p0(r.h[252].win)}</td></tr>`).join("")}
         </tbody></table></div>
+        <div class="pb" style="border-bottom:1px solid var(--rule)"><button class="btn small" type="button" id="pbInsTest">Test insider buying clusters on this list</button> <span class="muted" id="pbInsOut" style="font-size:13px"></span></div>
         <div class="pb muted" style="font-size:12px">Each time a quarter became public (45 days after it ended, 75 for the fiscal year), the stock was scored at that day's close and held from the next open for 3 or 12 months. "vs the list" compares each group with the average of all the list's stocks scored on the same dates, then averages across dates; the 12-month t-statistic is cut for overlapping windows. Read it with care: about five years and one list is a small sample, and a list chosen today holds companies that did well enough to be on it (survivorship), which flatters every group. A t-statistic under about 2 is not evidence either way.</div></div>`;
+      const ib = st.querySelector("#pbInsTest");
+      if (ib) ib.onclick = async () => {
+        ib.disabled = true; const o2 = st.querySelector("#pbInsOut");
+        try {
+          const syms = qlData.syms, cl = {};
+          for (let i = 0; i < syms.length; i += 4) { o2.textContent = `Reading insider trades ${Math.min(i + 4, syms.length)} of ${syms.length}…`; await Promise.all(syms.slice(i, i + 4).map(async s0 => { const t = await D.wb.insiders(s0).catch(() => null); cl[s0] = t ? P.insiderClusters(t).clusters : []; })); }
+          const spy = (await D.dailyBars(["SPY"], 1900)).SPY || [];
+          const r = P.insiderStudy(syms.map(s0 => ({ sym: s0, clusters: cl[s0], bars: qlData.bars[s0] || [] })), spy);
+          const f = h => h.n ? `${pct(h.excess)} vs SPY on average, ${p0(h.beat)} beat it${h.t != null ? `, t ${h.t.toFixed(1)}` : ""}` : "no completed windows";
+          o2.innerHTML = r.events.length ? esc(`${r.events.length} clusters (${r.events.slice(0, 5).map(z => z.sym + " " + z.d).join(", ")}${r.events.length > 5 ? "…" : ""}). After 3 months: ${f(r.h63)}. After 6 months: ${f(r.h126)}.`) + ` <span class="muted">Webull keeps about two years of insider trades, so expect few cases; under 20 says little.</span>` : esc("No insider buying clusters (2+ insiders buying on the open market within 30 days) on this list in Webull's history.");
+        } catch (e) { o2.textContent = "The insider test failed: " + (e.message || e); ib.disabled = false; }
+      };
     } catch (e) { fail(out, e); }
   }
 
@@ -537,26 +584,68 @@
       const hi20 = x.hi20[i], hi252 = x.hi252[i] != null ? x.hi252[i] : Math.max(...b.map(z => z.h));
       const lo20 = Math.min(...b.slice(-20).map(z => z.l));
       const live = b.length > 260 ? P.setupsAt(b, x, i, liq()) : [];
-      const [rep, conc, research] = await Promise.all([nextRep(sym), dir > 0 ? concentration(sym, s.value).catch(() => null) : null, researchFor(sym, b, x, last).catch(() => null)]);
+      const [rep, conc, research, qual, insT, sales] = await Promise.all([nextRep(sym), dir > 0 ? concentration(sym, s.value).catch(() => null) : null, researchFor(sym, b, x, last).catch(() => null), qualityOne(sym, b).catch(() => null), D.wb.insiders(sym).catch(() => null), recentSales().catch(() => [])]);
       const thinNow = !P.liquid(b, x, i, liq());
+      const ck = checklist({ sym, dir, b, x, i, s, rep, conc, qual, ins: insT ? P.insiderClusters(insT) : null, wash: P.washSale(sales, sym, Date.now()), live, thinNow });
       const [gname, gcls] = VERD[gateRes.verdict];
       out.innerHTML = `
         ${locked() ? '<div class="banner bad" style="margin-bottom:10px">Daily loss limit reached: the size is zero for the rest of today.</div>' : ""}
+        ${ck.html}
         <p class="verdict-line" style="font-size:19px">${s.shares ? esc(`${side === "long" ? "Buy" : "Sell short"} ${int(s.shares)} ${sym} at ${px(entry)}, stop ${px(stop)}: ${money(s.riskDollars)} at risk.`) : esc(locked() ? "No size today." : gateRes.verdict === "aside" && dir > 0 ? "The market gate says stand aside, so the size is zero." : !sizingValue() ? "Set an account value on the Today tab." : "The stop is too far for one share at this risk.")}</p>
         <div class="kv six">${D.kv([["Market gate", dir > 0 ? gname + " · " + mult(false).toFixed(2) + "×" : "Longs only · " + mult(true).toFixed(2) + "× for volatility"], ["Position value", money(s.value)], ["Share of account", s.pctOfAccount != null ? (s.pctOfAccount * 100).toFixed(1) + "%" : "—"], ["Stop distance", (per / entry * 100).toFixed(2) + "% · " + (per / a).toFixed(1) + " ATR"], ["Sized by", s.limitedBy === "cap" ? "Largest-position cap" : s.limitedBy === "risk" ? "Risk per trade" : s.limitedBy === "gate" ? "Market gate" : "—"], ["ATR 14", px(a)]])}</div>
         <div class="scroll" style="margin-top:12px"><table class="dt"><thead><tr><th>Level</th><th>Price</th><th>Result on this size</th></tr></thead><tbody>
           ${[["Stop (−1R)", stop, -1], ["1R", s.t1, 1], ["2R", s.t2, 2], ["3R", s.t3, 3]].map(([l, p, k]) => `<tr><td>${l}</td><td>${px(p)}</td><td class="chg ${k > 0 ? "up" : "down"}">${money(k * per * s.shares)}</td></tr>`).join("")}
         </tbody></table></div>
-        <p style="font-size:13px;margin:12px 0 0">${esc(dir > 0 ? `Room to the 20-day high: ${room(hi20)}. To the 52-week high: ${room(hi252)}.` : `Room to the 20-day low: ${room(lo20)}.`)} ${esc(live.length ? "Setups on the last close: " + live.map(z => z.label).join(", ") + "." : "None of the four Playbook setups is on the last close.")} Gate: <span class="pill ${gcls}">${esc(gname)}</span></p>
+        <p style="font-size:13px;margin:12px 0 0">${esc(dir > 0 ? `Room to the 20-day high: ${room(hi20)}. To the 52-week high: ${room(hi252)}.` : `Room to the 20-day low: ${room(lo20)}.`)} ${esc(live.length ? "Setups on the last close: " + live.map(z => z.label).join(", ") + "." : "None of the Playbook setups is on the last close.")} Gate: <span class="pill ${gcls}">${esc(gname)}</span></p>
         ${rep && P.earningsInside(rep, +cfg.hold) ? `<div class="banner bad" style="margin-top:12px"><b>Earnings ${esc(repText(rep))}</b>, ${rep.gapIn} session${rep.gapIn === 1 ? "" : "s"} away. A report can gap the price straight through the stop, so the loss can be several times ${s.shares ? esc(money(s.riskDollars)) : "the planned risk"}. Size down, wait for the report, or plan to exit before it.</div>` : `<p style="font-size:13px;margin:12px 0 0">Next earnings: ${esc(repText(rep))}.</p>`}
         ${thinNow ? `<div class="banner" style="margin-top:12px">${esc(sym)} is under your liquidity limits ($${esc(String(cfg.minPrice))} and $${esc(String(cfg.minDvM))} million a day). Expect wider spreads and slippage.</div>` : ""}
         ${conc && conc.hits.length ? `<div class="banner" style="margin-top:12px"><b>This would add to a bet you already hold.</b> Over 60 sessions ${esc(sym)} moved with ${esc(conc.hits.map(h => h.sym + " (" + h.c.toFixed(2) + ")").join(", "))}. Together with this trade that is ${(conc.together * 100).toFixed(0)}% of the account, acting more like one position than several.</div>` : conc ? `<p class="muted" style="font-size:12px;margin:8px 0 0">None of your ${conc.pos.length} holdings moved closely with ${esc(sym)} (correlation under 0.70 over 60 sessions).</p>` : ""}
         ${research ? researchHtml(research, last) : ""}
         <div class="row" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn small primary" type="button" id="pbSave" ${s.shares ? "" : "disabled"}>Save this plan</button><span class="muted" style="font-size:12px">Saved plans let Manage track the trade and My edge check whether you kept the stop.</span></div>
         <p class="muted" style="font-size:12px;margin:8px 0 0">A stop under 1 ATR is often hit by ordinary noise. Less than 2R of room to a recent high leaves little reward for the risk.</p>`;
+      const gb = out.querySelector("#pbCkGamma");
+      if (gb) gb.onclick = async () => { gb.disabled = true; gb.textContent = "Reading the option chain…"; try { const g = D.gammaApp ? await D.gammaApp.quick(sym, last) : null; const el = out.querySelector("#pbCkGammaOut"); el.innerHTML = g ? `<span class="pill ${g.regime === "positive" ? "pass" : "fail"}">${g.regime === "positive" ? "Positive gamma" : "Negative gamma"}</span> ${esc(`this week: ${g.regime === "positive" ? "moves tend to be damped" : "moves tend to extend"}; King ${px(g.king)}, call wall ${px(g.callWall)}, put wall ${px(g.putWall)}${g.flip ? ", zero gamma " + px(g.flip) : ""}.`)}` : '<span class="muted">No options with open interest.</span>'; gb.remove(); } catch (e) { gb.disabled = false; gb.textContent = "Gamma failed: try again"; } };
       const sv = out.querySelector("#pbSave");
-      if (sv) sv.onclick = async () => { sv.disabled = true; try { await Plans.add({ sym, side, entry: +entry.toFixed(2), stop: +stop.toFixed(2), target: +s.t2.toFixed(2), shares: s.shares, setup: live.length ? live[0].id : null, gate: gateRes.verdict, date: nyNow().date, hold: +cfg.hold }); sv.textContent = "Saved"; renderPlans(box); } catch (e) { sv.disabled = false; sv.textContent = "Could not save: " + (e.message || e.code || "error"); } };
+      if (sv) sv.onclick = async () => { sv.disabled = true; try { await Plans.add({ sym, side, entry: +entry.toFixed(2), stop: +stop.toFixed(2), target: +s.t2.toFixed(2), shares: s.shares, setup: live.length ? live[0].id : null, gate: gateRes.verdict, date: nyNow().date, hold: +cfg.hold, check: ck.verdict, checkWhy: ck.reasons.filter(r => r.mark !== "ok").map(r => r.text).slice(0, 6) }); sv.textContent = "Saved"; renderPlans(box); } catch (e) { sv.disabled = false; sv.textContent = "Could not save: " + (e.message || e.code || "error"); } };
     } catch (e) { fail(out, e); }
+  }
+
+  /* Quality for one symbol: Robinhood's quarterly financials and Webull's indicators, scored on the latest quarter. */
+  async function qualityOne(sym, b) {
+    const [f, ind] = await Promise.all([call("get_financials", { symbols: [sym], period: "quarterly", limit: 24 }, 6 * 3600000).catch(() => null), D.wb.indicators(sym).catch(() => null)]);
+    const fin = f && f.results && f.results[0] ? f.results[0].financials || [] : []; if (!fin.length) return null;
+    const qs = window.Quality.merge(fin, ind), j = b.length - 1; if (!qs.length || j < 0) return null;
+    const sc = window.Quality.scoreAt(qs, qs.length - 1, b[j].c); return sc ? Object.assign(sc, { trend: window.Quality.trendAt(b, j) }) : null;
+  }
+  /* The pre-trade checklist: everything the desk knows about one trade, ending in Go, Wait or No. */
+  function checklist(o) {
+    const R0 = [], add = (mark, text) => R0.push({ mark, text });
+    const g = gateRes, long = o.dir > 0;
+    if (locked()) add("no", "Daily loss limit reached.");
+    if (long && g) add(g.verdict === "go" ? "ok" : g.verdict === "half" ? "warn" : "no", `Market gate: ${VERD[g.verdict][0]}.`);
+    if (long && spyB && spyB.length > 60) { const w = P.bottomWatch(spyB, vixB || [], (sets || []).map(z => ({ bars: z.bars }))); if (w && w.state !== "none") add(w.state === "confirmed" ? "ok" : "warn", `Bottom watch on SPY: ${w.state === "confirmed" ? "confirmed by a follow-through day" : w.state === "forming" ? "a bottom may be forming, not confirmed" : "early"}.`); }
+    const evRows = ev ? Object.fromEntries(ev.rows.map(r => [r.id, r])) : {};
+    if (o.live.length) o.live.forEach(h => { const r = evRows[h.id]; add(r && r.n >= 10 ? (r.expR > 0.05 ? "ok" : r.expR < 0 ? "no" : "warn") : "warn", `Setup live: ${h.label}${r && r.n ? ` (on the list ${R(r.expR)} over ${r.n} trades)` : " (no record on the list yet)"}.`); });
+    else add("warn", "No Playbook setup on the last close: an entry here is your own idea, not a tested rule.");
+    if (o.rep && P.earningsInside(o.rep, +cfg.hold)) add("no", `Earnings in ${o.rep.gapIn} session${o.rep.gapIn === 1 ? "" : "s"}: a gap can jump the stop.`); else if (o.rep) add("ok", "No earnings inside the hold.");
+    add(o.thinNow ? "no" : "ok", o.thinNow ? "Under your liquidity limits." : "Liquid enough by your limits.");
+    if (o.conc && o.conc.hits && o.conc.hits.length) add("warn", `Moves with what you hold (${o.conc.hits.map(h => h.sym).join(", ")}).`);
+    if (o.qual && o.qual.quality != null) add(o.qual.quality >= 70 ? "ok" : o.qual.quality < 40 ? (long ? "warn" : "ok") : "ok", `Quality ${o.qual.quality}, value ${o.qual.value == null ? "—" : o.qual.value}${o.qual.pe ? `, P/E ${o.qual.pe.toFixed(1)}` : ""}.`);
+    const tr = o.qual && o.qual.trend; if (tr && long) add(tr === "up" ? "ok" : tr === "down" ? "warn" : "warn", `Trend: ${tr === "up" ? "above a rising 200-day" : tr === "down" ? "below the 200-day" : "mixed"}.`);
+    const m = P.momentum12_1(o.b), rk = sets ? P.rsRanks(sets.concat(sets.some(z => z.sym === o.sym) ? [] : [{ sym: o.sym, bars: o.b }]))[o.sym] : null;
+    if (m != null) add(long ? (m > 0 ? "ok" : "warn") : "ok", `12-month momentum ${pct(m)}${rk ? `, rank ${rk.rank} of 99 on the list` : ""}.`);
+    if (o.ins && o.ins.latest && Date.now() - Date.parse(o.ins.latest.end) < 120 * 864e5) add("ok", `Insider buying cluster: ${o.ins.latest.insiders} insiders, ${o.ins.latest.d}${o.ins.latest.end !== o.ins.latest.d ? " to " + o.ins.latest.end : ""}.`);
+    if (o.wash && o.wash.risk) add("warn", `Wash sale: sold at a loss on ${o.wash.lastSale} (${money(o.wash.loss)}); buying before ${o.wash.clearAfter} defers that loss for taxes.`);
+    if (o.s && !o.s.shares) add("no", "The size comes out at zero.");
+    const no = R0.some(r => r.mark === "no"), setupOk = R0.some(r => r.mark === "ok" && r.text.startsWith("Setup live"));
+    const warns = R0.filter(r => r.mark === "warn").length;
+    const verdict = no ? "no" : setupOk && warns <= 2 ? "go" : "wait";
+    const V = { go: ["Go", "pass", "The checklist is clear enough to take the planned trade."], wait: ["Wait", "", "Not a clean setup yet: wait for a tested setup, or for the warnings to clear."], no: ["No", "fail", "Something on the list rules this trade out today."] };
+    const icon = { ok: '<span class="chg up">✓</span>', warn: '<span style="color:var(--amber)">!</span>', no: '<span class="chg down">✗</span>' };
+    const html = `<div class="panel" style="margin-bottom:12px"><div class="ph"><h2>Pre-trade checklist</h2><span class="pill ${V[verdict][1]}" style="font-size:13px">${V[verdict][0]}</span></div>
+      <div class="pb"><p style="margin:0 0 8px;font-size:14px">${esc(V[verdict][2])}</p><ul style="margin:0;padding-inline-start:18px;font-size:13px;line-height:1.6">${R0.map(r => `<li style="list-style:none;margin-inline-start:-18px">${icon[r.mark]} ${esc(r.text)}</li>`).join("")}<li style="list-style:none;margin-inline-start:-18px"><span class="muted">·</span> <span id="pbCkGammaOut"><button class="btn small" type="button" id="pbCkGamma">Add the gamma read</button></span></li></ul>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Go needs a live setup with a positive record on your list, nothing ruled out, and at most two warnings. Saving the plan saves this verdict with it, so My edge can later compare your decisions with how the trades went. A checklist, not a recommendation.</p></div></div>`;
+    return { verdict, reasons: R0, html };
   }
 
   /* Research for one symbol from both brokers: analyst ratings and targets, Webull's large-order money flow and unusual
@@ -685,7 +774,7 @@
       out.innerHTML = `
         <p class="verdict-line">${esc(`${g.n} round trips: ${(g.win * 100).toFixed(0)}% winners, ${money0(g.exp)} per trade on average, ${money0(g.pnl)} in total.`)}</p>
         <div class="kv six">${D.kv([["Average win", money0(g.avgWin)], ["Average loss", money0(g.avgLoss)], ["Win ÷ loss size", g.avgWin != null && g.avgLoss ? (g.avgWin / -g.avgLoss).toFixed(2) : "—"], ["Profit factor", g.pf == null ? "—" : g.pf === Infinity ? "no losses" : g.pf.toFixed(2)], ["Deepest drop", money0(-r.maxDD)], ["Longest losing run", String(r.worstStreak)]])}</div>
-        ${pm.n ? `<div class="panel" style="margin-top:14px"><div class="ph"><h2 style="font-size:15px">Trades with a saved plan</h2><span class="eyebrow">${pm.n} matched</span></div><div class="kv six">${D.kv([["Average", R(pm.expR)], ["Win rate", p0(pm.win)], ["Worst", R(pm.worstR)], ["Stop broken", pm.brokeStop + " of " + pm.n], ["Held past plan", pm.overHold + " of " + pm.n], ["Entry vs plan", pct(pm.avgSlip)]])}</div><div class="pb muted" style="font-size:12px">Stop broken: sold more than a quarter of the risk below the planned stop. Results are in R on the plan's own risk. A trade is matched to a long plan for the same stock saved up to 7 days before the purchase.</div></div>` : '<p class="muted" style="font-size:13px">No trades match a saved plan yet. Save plans from Size a trade or the Scanner, and this will show your results in R and whether you kept your stops.</p>'}
+        ${pm.n ? `<div class="panel" style="margin-top:14px"><div class="ph"><h2 style="font-size:15px">Trades with a saved plan</h2><span class="eyebrow">${pm.n} matched</span></div><div class="kv six">${D.kv([["Average", R(pm.expR)], ["Win rate", p0(pm.win)], ["Worst", R(pm.worstR)], ["Stop broken", pm.brokeStop + " of " + pm.n], ["Held past plan", pm.overHold + " of " + pm.n], ["Entry vs plan", pct(pm.avgSlip)]])}</div><div class="pb muted" style="font-size:12px">Stop broken: sold more than a quarter of the risk below the planned stop. Results are in R on the plan's own risk. A trade is matched to a long plan for the same stock saved up to 7 days before the purchase.${pm.byCheck && Object.keys(pm.byCheck).length ? ` By the checklist's verdict when you saved the plan: ${["go", "wait", "no"].filter(k => pm.byCheck[k]).map(k => `${{ go: "Go", wait: "Wait", no: "No" }[k]} ${R(pm.byCheck[k].expR)} over ${pm.byCheck[k].n} (${p0(pm.byCheck[k].win)} won)`).join("; ")}.` : ""}</div></div>` : '<p class="muted" style="font-size:13px">No trades match a saved plan yet. Save plans from Size a trade or the Scanner, and this will show your results in R and whether you kept your stops.</p>'}
         ${r.lessons.length ? '<h3 style="font-family:var(--font-display);font-size:16px;margin:16px 0 6px">What your trades say</h3><ul style="margin:0 0 6px;padding-inline-start:20px;max-width:80ch">' + r.lessons.slice(0, 6).map(l => `<li style="margin-block:5px">${esc(l)}</li>`).join("") + "</ul>" : '<p class="muted">Each comparison needs at least 5 trades on both sides, so there are no lessons yet. A longer period helps.</p>'}
         <div class="legend" style="margin-top:12px"><span><i style="background:var(--teal)"></i>Running total of closed trades</span></div>
         <div class="chart-box" style="height:200px"><canvas id="pbCurve" role="img" aria-label="Running total of closed trades"></canvas></div>
@@ -720,8 +809,38 @@
         </tbody></table></div>
         <div class="pb muted" style="font-size:12px;padding-inline:0">
           <b>How to read it.</b> Rising and Falling volume split each setup's trades by whether the 20-day average volume was higher or lower than 20 sessions earlier when the signal fired: the "trend supported by volume" idea, tested. Average is the profit per trade in R after costs; above +0.1R is useful. First 70% and Last 30% split the trades by entry date at ${esc(e.split || "—")}; an edge that only shows up in the first part was probably fitted to it. The deflated Sharpe (Bailey and López de Prado, 2014) is the chance the true edge is above zero after allowing for the number of settings tried, the trade count and fat tails; 95% or more is strong. "Held up" needs a positive average in both parts, at least 10 later trades and a deflated Sharpe of 95%.
-          <br><b>How it trades.</b> A setup on a close places a buy-stop for the next session only. It fills at the entry, or at the open when the stock gaps above it. Inside a day the price is assumed to go open, low, high, close on an up day and open, high, low, close on a down day. Exit at the stop (at the open on a gap through it), the target, or the close after ${cfg.hold} days; the HP trend setup has no target and leaves at the next open after its averages cross back down, or after 60 sessions. One open trade per setup per name. Trades overlap in time across names, so the statistics are a little optimistic. The list is today's list, which favours names that survived. This is a test of the past, not a forecast.</div>`;
+          <br><b>Earnings drift</b> uses Robinhood's last 8 quarters of reported and estimated earnings per share, so it covers only about two years and will show few trades for a while; it holds up to 40 sessions with no target.
+          <br><b>How it trades.</b> A setup on a close places a buy-stop for the next session only. It fills at the entry, or at the open when the stock gaps above it. Inside a day the price is assumed to go open, low, high, close on an up day and open, high, low, close on a down day. Exit at the stop (at the open on a gap through it), the target, or the close after ${cfg.hold} days; the HP trend setup has no target and leaves at the next open after its averages cross back down, or after 60 sessions. One open trade per setup per name. Trades overlap in time across names, so the statistics are a little optimistic. The list is today's list, which favours names that survived. This is a test of the past, not a forecast.</div><div id="pbFwd" style="margin-top:18px"></div>`;
+      renderForward(out.querySelector("#pbFwd"));
     } catch (e) { fail(out, e); }
+  }
+  /* Forward record: every logged signal followed on the sessions after it was logged. The only test on data the rules
+     never saw. */
+  async function renderForward(el) {
+    if (!el) return;
+    const db = await sigDb(); if (!db) { el.innerHTML = '<p class="muted" style="font-size:12px">The forward record needs this page\'s database, which this view cannot reach.</p>'; return; }
+    busy(el, "Reading the forward record…");
+    try {
+      const q = await db.collection("signals").get(), sigs = q.docs.map(d => d.data()).filter(z => z && z.sym && z.date);
+      const head = '<div class="panel"><div class="ph"><h2>Forward record</h2><span class="eyebrow">Signals followed after they were logged</span></div>';
+      if (!sigs.length) { el.innerHTML = head + '<div class="pb muted" style="font-size:13px">No signals logged yet. Every Scanner run, and the daily report, saves the setups it shows here; each is then followed on the sessions after it: was the buy-stop filled the next session, then did it reach the stop, the target or the time limit. After a few months this shows which setups work on days the rules have never seen.</div></div>'; return; }
+      const syms = [...new Set(sigs.map(z => z.sym))], first = sigs.map(z => z.date).sort()[0];
+      const days = Math.max(60, Math.ceil((Date.now() - Date.parse(first + "T12:00:00Z")) / D.DAY) + 30);
+      const bars = await D.dailyBars(syms, days, (a, b) => busy(el, `Reading prices ${a} of ${b}…`));
+      const res = sigs.map(z => Object.assign({}, z, P.resolveSignal(bars[z.sym] || [], z))).sort((a, b) => a.date < b.date ? 1 : -1);
+      const rows = P.SETUPS.map(S => { const r = res.filter(z => z.setup === S.id), closed = r.filter(z => z.status === "closed"); return { S, n: r.length, notFilled: r.filter(z => z.status === "not filled").length, open: r.filter(z => z.status === "open").length, pending: r.filter(z => z.status === "pending").length, closed: closed.length, sum: closed.length ? P.rSummary(closed) : null }; }).filter(r => r.n);
+      const allClosed = res.filter(z => z.status === "closed"), tot = allClosed.length ? P.rSummary(allClosed) : null;
+      const ST = { pending: "Waiting", "not filled": "Not filled", open: "Open", closed: "Closed", "bad stop": "—" };
+      el.innerHTML = head + `<div class="pb" style="padding-bottom:0"><p style="margin:0;font-size:14px">${esc(`${res.length} signals since ${first}: ${allClosed.length} closed${tot ? `, average ${R(tot.expR)}, ${p0(tot.win)} winners` : ""}; ${res.filter(z => z.status === "open").length} open; ${res.filter(z => z.status === "not filled").length} never filled.`)}</p></div>
+        <div class="scroll"><table class="dt"><thead><tr><th>Setup</th><th>Signals</th><th>Not filled</th><th>Open</th><th>Closed</th><th>Average (closed)</th><th>Win rate</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td><b>${esc(r.S.short)}</b></td><td>${r.n}</td><td>${r.notFilled}</td><td>${r.open}</td><td>${r.closed}</td><td>${r.sum ? `<span class="chg ${r.sum.expR >= 0 ? "up" : "down"}">${R(r.sum.expR)}</span>` : "—"}</td><td>${r.sum ? p0(r.sum.win) : "—"}</td></tr>`).join("")}
+        </tbody></table></div>
+        <h3 style="margin:14px 16px 6px;font-size:14px">Latest signals</h3>
+        <div class="scroll"><table class="dt"><thead><tr><th>Signal date</th><th>Symbol</th><th>Setup</th><th>Buy above</th><th>Stop</th><th>Status</th><th>Result</th></tr></thead><tbody>
+        ${res.slice(0, 20).map(z => `<tr class="clickable" tabindex="0" data-sym="${esc(z.sym)}"><td>${esc(z.date)}</td><td><b>${esc(z.sym)}</b></td><td>${esc((P.SETUPS.find(S => S.id === z.setup) || {}).short || z.setup)}</td><td>${px(z.entry)}</td><td>${px(z.stop)}</td><td>${esc(ST[z.status] || z.status)}${z.why && z.status !== "open" ? ` <span class="muted">${esc(z.why)}</span>` : ""}</td><td>${z.R != null ? `<span class="chg ${z.R >= 0 ? "up" : "down"}">${R(z.R)}</span>${z.status === "open" ? ' <span class="muted">so far</span>' : ""}` : "—"}</td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">Same trading rules as the backtest: a buy-stop good for the next session only, then the stop, the target or the time limit (the HP trend setup is followed to its 60-session limit here, without its trend exit). Results are before costs. A few weeks of signals mean little; judge a setup after 30 or more closed trades.</div></div>`;
+    } catch (e) { fail(el, e); }
   }
 
   D.register("playbook", {

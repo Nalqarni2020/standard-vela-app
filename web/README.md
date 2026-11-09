@@ -64,3 +64,19 @@ range. A read combines quality with the trend (Candidate, Watch, Cheap but weak,
 each stock when each quarter became public (45 days after quarter end, 75 for the fiscal year) and compares 3- and
 12-month returns by group against the list on the same dates. Sources: Robinhood `get_financials`, Webull
 `get_financial_indicators`. US stocks only.
+
+## Forward record, earnings drift, insiders, checklist, alerts, wash sales, RS rank
+
+- **Earnings drift** (setup 8, `pead`): an EPS beat of 5%+ with a 2%+ heavy-volume reaction, entered 1 to 5 sessions
+  later, held up to 40 sessions with no target. Uses Robinhood's last 8 quarters of earnings.
+- **Forward record**: every Scanner run and the daily report save their setups to the page database (`signals`); the
+  Evidence tab follows each one on the sessions after it was logged (`resolveSignal`).
+- **Insider clusters**: 2+ different insiders buying on the open market within 30 days (Webull; price-0 grants excluded).
+  Shown in the Scanner and the checklist; tested from the Quality tab against SPY.
+- **Pre-trade checklist** on Size a trade: gate, Bottom watch, live setups and their record, earnings, liquidity,
+  overlap with holdings, quality and value, trend, momentum rank, insiders, wash sale, and an optional gamma read; ends in
+  Go, Wait or No, saved with the plan; My edge splits planned trades by that verdict.
+- **Wash-sale warnings** from Robinhood's realized sales in the last 30 days.
+- **RS rank**: the 12-month return skipping the last month, ranked 1 to 99 across the list.
+- **Alerts**: the after-close report and a midday check (scheduled in Claude) send one phone notification when a saved
+  plan triggers or a holding breaks its stop. Read-only towards the brokers.

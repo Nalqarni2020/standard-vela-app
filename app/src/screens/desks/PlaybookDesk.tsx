@@ -48,13 +48,13 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
   const hits = useMemo(() => {
     if (!data) return [];
     const evRows: Record<string, any> = {}; (data.ev ? data.ev.rows : []).forEach((r: any) => { evRows[r.id] = r; });
-    const out: any[] = [];
+    const out: any[] = [], rs = Playbook.rsRanks(data.sets);
     data.sets.forEach(s => {
       const i = s.bars.length - 1;
       Playbook.setupsAt(s.bars, s.x, i, LIQ).forEach((h: any) => {
         const plan = Playbook.sizePlan({ account: settings.account, riskPct: riskPct / 100, mult: data.gate.sizeMult, entry: h.entry, stop: h.stop, capPct: settings.capPct / 100 });
         const volUp = s.x.v20[i] != null && s.x.v20[i - 20] != null ? s.x.v20[i] > s.x.v20[i - 20] : null;
-        out.push({ ...h, sym: s.sym, last: s.bars[i].c, atr: s.x.atr[i], plan, list: evRows[h.id], volUp });
+        out.push({ ...h, sym: s.sym, last: s.bars[i].c, atr: s.x.atr[i], plan, list: evRows[h.id], volUp, rs: rs[s.sym] });
       });
     });
     return out.sort((a, b) => ((b.list && b.list.expR) ?? -9) - ((a.list && a.list.expR) ?? -9));
@@ -106,7 +106,7 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
             <Text style={[{ color: theme.ink2, fontSize: 13, marginTop: 3 }, mono as TextStyle]}>{r.n} trades · avg {R(r.expR)} · first 70% {R(r.train.expR)} · last 30% {R(r.test.expR)} · deflated Sharpe {r.deflated ? (r.deflated.dsr * 100).toFixed(0) + "%" : "—"}</Text>
             {r.volUp ? <Text style={[{ color: theme.ink3, fontSize: 12, marginTop: 2 }, mono as TextStyle]}>Rising volume {R(r.volUp.expR)} ({r.volUp.n}) · falling volume {R(r.volDown.expR)} ({r.volDown.n})</Text> : null}
           </View>))}
-        <Text style={{ color: theme.ink3, fontSize: 12, padding: 14 }}>The exact scanner rules on about three years of your watchlist: buy-stop next session, stop as planned, target or a 10-day time exit, 5 basis points a side. Rising or falling volume: the 20-day average volume against 20 sessions earlier, when the trade was taken. Above +0.1R a trade is useful; the deflated Sharpe is the chance the edge is real after allowing for trying several setups. The web desk's Evidence tab counts every setting you try.</Text>
+        <Text style={{ color: theme.ink3, fontSize: 12, padding: 14 }}>The exact scanner rules on about three years of your watchlist: buy-stop next session, stop as planned, target or a 10-day time exit, 5 basis points a side. Rising or falling volume: the 20-day average volume against 20 sessions earlier, when the trade was taken. Earnings drift needs earnings estimates, which the phone's data source doesn't have: it runs on the web desk and in the daily report. Above +0.1R a trade is useful; the deflated Sharpe is the chance the edge is real after allowing for trying several setups. The web desk's Evidence tab counts every setting you try.</Text>
       </Card> : <Text style={{ color: theme.ink3 }}>Add tickers to your watchlist in Settings.</Text>}</>);
     else body = (<>{head}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -116,7 +116,7 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       </View>
       {hits.length ? hits.map((h, k) => (
         <Card key={h.sym + h.id + k} theme={theme} title={h.sym} right={<Text style={{ color: theme.ink3, fontSize: 11 }}>{(Playbook.SETUPS.find((z: any) => z.id === h.id) || {}).short?.toUpperCase()}</Text>}>
-          <KV theme={theme} items={[["Buy above", px(h.entry)], ["Stop", px(h.stop) + " · " + (h.risk / h.atr).toFixed(1) + " ATR"], ["Target", px(h.target)], ["Shares", h.plan.shares ? int(h.plan.shares) : g.verdict === "aside" ? "Stand aside" : "—"], ["At risk", h.plan.shares ? money(h.plan.riskDollars) : "—"], ["Setup on your list", h.list && h.list.n ? R(h.list.expR) + " · " + h.list.n : "—"], ["Volume trend", h.volUp == null ? "—" : h.volUp ? "Rising" : "Falling"]]} />
+          <KV theme={theme} items={[["Buy above", px(h.entry)], ["Stop", px(h.stop) + " · " + (h.risk / h.atr).toFixed(1) + " ATR"], ["Target", px(h.target)], ["Shares", h.plan.shares ? int(h.plan.shares) : g.verdict === "aside" ? "Stand aside" : "—"], ["At risk", h.plan.shares ? money(h.plan.riskDollars) : "—"], ["Setup on your list", h.list && h.list.n ? R(h.list.expR) + " · " + h.list.n : "—"], ["Volume trend", h.volUp == null ? "—" : h.volUp ? "Rising" : "Falling"], ["RS rank", h.rs ? h.rs.rank + " of 99" : "—"]]} />
         </Card>)) : <Text style={{ color: theme.ink3, marginBottom: 12 }}>No setups on the last close{uni.length ? "" : ": add tickers to your watchlist in Settings"}.</Text>}
       <Text style={{ color: theme.ink3, fontSize: 12, marginBottom: 12 }}>Buy-stop orders for the next session; an order not filled that day is cancelled. Names under $5 or trading under $5 million a day are skipped. Check earnings dates before holding a swing trade. The web desk's Playbook flags them, trails your stops on its Manage tab and checks saved plans against your fills.</Text>
     </>);

@@ -96,6 +96,8 @@
     },
     /* Quarterly indicators: ROE, ROA, liabilities to assets, diluted EPS, operating cash flow and book value per share (up to 20 quarters). */
     async indicators(sym) { const d = await wbCall("get_financial_indicators", { symbol: sym, category: "US_STOCK", type: "QUARTERLY", count: 20 }, 6 * 3600000); return d && d.values ? d.values : null; },
+    /* Insider transactions, buys only (Webull marks grants and awards as buys at price 0; insiderClusters drops them). */
+    async insiders(sym) { const d = await wbCall("get_insider_transactions", { symbol: sym, side: "BUY" }, 6 * 3600000); return Array.isArray(d) ? d : null; },
     async unusual(sym, count) { const d = await wbCall("get_stock_unusual_activities", { symbol: sym, count: count || 10 }, 900000); return Array.isArray(d) ? d.map(x => ({ t: Date.parse(x.time), type: x.alert_type, vol: num(x.volume) })).filter(x => isFinite(x.t)) : null; },
   };
 

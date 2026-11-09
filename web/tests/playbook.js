@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 7); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
+  assert.equal(ev.rows.length, 8); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -308,6 +308,64 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert(gu.n >= 30, 'gap cases ' + gu.n); assert(gu.h[5].mean > 0.03); assert.equal(gu.verdict.key, 'cont');
   assert.equal(st.rows.length, 6); assert.equal(st.rows.find(r => r.id === 'gd').n, 0);
   assert.equal(gu.split[0].n, gu.n, 'every gap closed above its open');
+  ok();
+}
+
+// earnings drift: an 8% beat with a 4% up day on 3x volume fires 1-5 sessions later; a miss does not; hold 40, no target
+{
+  const b = []; let p = 50;
+  for (let i = 0; i < 320; i++) { p *= 1.001; b.push(Object.assign(day(i), { o: p, h: p * 1.005, l: p * 0.995, c: p, v: 1e6 })); }
+  const r = 300; b[r] = Object.assign(day(r), { o: b[r - 1].c * 1.03, h: b[r - 1].c * 1.05, l: b[r - 1].c * 1.02, c: b[r - 1].c * 1.04, v: 3e6 });
+  for (let i = r + 1; i < 320; i++) { const c0 = b[i - 1].c * 1.001; b[i] = Object.assign(day(i), { o: c0, h: c0 * 1.005, l: c0 * 0.995, c: c0, v: 1e6 }); }
+  const x = P.prep(b);
+  const res = (act, est, date, timing) => [{ eps: { actual: String(act), estimate: String(est) }, report: { date, timing } }];
+  x.earn = P.earnEvents(b, res(1.08, 1.0, b[r - 1].d, 'pm'));
+  assert.equal(x.earn[0].i, r); near(x.earn[0].surprise, 0.08);
+  assert(P.setupsAt(b, x, r + 2).some(z => z.id === 'pead' && z.target === Infinity && z.hold === 40), 'fires after the reaction day');
+  assert(!P.setupsAt(b, x, r).some(z => z.id === 'pead'), 'not on the reaction day itself');
+  assert(!P.setupsAt(b, x, r + 7).some(z => z.id === 'pead'), 'not after 5 sessions');
+  x.earn = P.earnEvents(b, res(0.9, 1.0, b[r - 1].d, 'pm')); assert(!P.setupsAt(b, x, r + 2).some(z => z.id === 'pead'), 'a miss does not fire');
+  x.earn = P.earnEvents(b, res(1.08, 1.0, b[r].d, 'am')); assert.equal(x.earn[0].i, r, 'a morning report reacts the same day');
+  ok();
+}
+// forward record: not filled, stopped, target, time and still open
+{
+  const mk = arr => arr.map((z, i) => Object.assign(day(i), { o: z[0], h: z[1], l: z[2], c: z[3], v: 1e6 }));
+  const b = mk([[10, 10.2, 9.8, 10], [10, 10.1, 9.9, 10], [10.1, 10.6, 10, 10.5], [10.5, 12.5, 10.4, 12.2]]);
+  const sig = { date: b[0].d, entry: 10.5, stop: 9.5, target: 12, hold: 10 };
+  assert.equal(P.resolveSignal(b, sig).status, 'not filled');   // next session's high 10.1 never reached 10.5
+  const b2 = mk([[10, 10.2, 9.8, 10], [10.1, 10.6, 10, 10.5], [10.5, 12.5, 10.4, 12.2]]);
+  let r = P.resolveSignal(b2, sig); assert.equal(r.status, 'closed'); assert.equal(r.why, 'Target'); near(r.R, 1.5);
+  const b3 = mk([[10, 10.2, 9.8, 10], [10.1, 10.6, 10, 10.5], [10.4, 10.4, 9.2, 9.4]]);
+  r = P.resolveSignal(b3, sig); assert.equal(r.why, 'Stop'); near(r.R, -1);
+  r = P.resolveSignal(b2.slice(0, 2), Object.assign({}, sig, { target: null })); assert.equal(r.status, 'open');
+  r = P.resolveSignal(b2, Object.assign({}, sig, { target: null, hold: 2 })); assert.equal(r.why, 'Time');
+  assert.equal(P.resolveSignal(b2.slice(0, 1), sig).status, 'pending');
+  ok();
+}
+// insider clusters ignore grants (price 0) and need two different insiders within 30 days; wash sales; momentum rank
+{
+  const tx = [{ side: 'BUY', price: '0', shares: '1000', insider_name: 'Roberts (Daniel John)', transaction_date: '2026-07-01' },
+    { side: 'BUY', price: '10', shares: '1000', insider_name: 'Roberts (Daniel John)', transaction_date: '2026-08-01' },
+    { side: 'BUY', price: '11', shares: '500', insider_name: 'Roberts (Daniel)', transaction_date: '2026-08-05' },
+    { side: 'BUY', price: '12', shares: '2000', insider_name: 'Smith (Ann)', transaction_date: '2026-08-20' },
+    { side: 'SELL', price: '13', shares: '9000', insider_name: 'Lee (Bo)', transaction_date: '2026-08-21' }];
+  const c = P.insiderClusters(tx); assert.equal(c.buys, 3); assert.equal(c.clusters.length, 1); assert.equal(c.latest.insiders, 2); assert.equal(c.latest.d, '2026-08-20');
+  assert.equal(P.insiderClusters(tx.slice(0, 3)).clusters.length, 0, 'the same person twice is not a cluster');
+  const sales = [{ symbol: 'IREN', side: 'sell', realized_gain: '-562.1', timestamp: '2026-10-14T13:43:47Z' }, { symbol: 'IREN', side: 'sell', realized_gain: '3.68', timestamp: '2026-10-06T21:54:40Z' }];
+  const w = P.washSale(sales, 'IREN', Date.parse('2026-11-09T12:00:00Z')); assert(w.risk); near(w.loss, -562.1); assert.equal(w.clearAfter, '2026-11-14');
+  assert(!P.washSale(sales, 'IREN', Date.parse('2026-11-20T12:00:00Z')).risk); assert(!P.washSale(sales, 'CIFR', Date.parse('2026-11-09T12:00:00Z')).risk);
+  const up = Array.from({ length: 260 }, (_, i) => ({ c: 10 * (1 + i / 100) })), dn = Array.from({ length: 260 }, (_, i) => ({ c: 10 * (1 - i / 400) }));
+  const rk = P.rsRanks([{ sym: 'U', bars: up }, { sym: 'D', bars: dn }, { sym: 'S', bars: up.slice(0, 100) }]);
+  assert.equal(rk.U.rank, 99); assert.equal(rk.D.rank, 1); assert.equal(rk.S, undefined);
+  ok();
+}
+// insider study: excess over SPY from the open two sessions after the cluster
+{
+  const mk = (n, f) => Array.from({ length: n }, (_, i) => Object.assign(day(i), { o: f(i), h: f(i), l: f(i), c: f(i), v: 1e6 }));
+  const stock = mk(300, i => 10 * (1 + 0.004 * i)), spy = mk(300, i => 100);
+  const r = P.insiderStudy([{ sym: 'X', clusters: [{ end: day(10).d, insiders: 2, value: 1e6 }], bars: stock }], spy);
+  assert.equal(r.events.length, 1); assert.equal(r.h63.n, 1); near(r.h63.excess, stock[12 + 63].c / stock[13].o - 1, 1e-9);
   ok();
 }
 console.log('playbook tests passed:', n);

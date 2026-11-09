@@ -163,5 +163,12 @@
       <div class="pb">${res && res.n ? `<div class="kv four">${D.kv([["Sessions tested", String(res.n)], ["Range vs expected, positive gamma", r2(res.range.pos) + " (" + res.range.posN + ")"], ["Range vs expected, negative gamma", r2(res.range.neg) + " (" + res.range.negN + ")"], ["Closed inside the 1-day move", p0(res.insideEm)], ["Call wall: reached and closed back under", p0(res.callWall.heldShare) + " of " + res.callWall.touched], ["Put wall: reached and closed back over", p0(res.putWall.heldShare) + " of " + res.putWall.touched], ["Closed nearer the King", p0(res.king.towardShare) + " of " + res.king.n + " (chance ≈ 50%)"]])}</div>` : ""}
       <p class="muted" style="font-size:12px;margin:${res && res.n ? "10px" : "0"} 0 0">${enough ? "Read the numbers against chance: about half of closes land nearer any given strike, and a wall that is rarely reached says little." : `Not enough yet: ${res ? res.n : 0} session${res && res.n === 1 ? "" : "s"} tested; a verdict needs 20 or more.`} Each build is saved to this page's database (only you can open this page). Builds made outside market hours, before 9:30 or after 4:00 New York time, are tested against the next session: its range against the expected one-day move in positive and negative gamma, whether the walls turned price back, and whether price closed nearer the King. Open interest history can't be downloaded, so this record starts now: build SPY and QQQ after the close on most days to fill it.</p></div></div>`;
   }
-  D.gammaApp = { show, build };
+  /* A quick read for the pre-trade checklist: this week's expirations for one symbol, without touching the view. */
+  async function quick(s, spot) {
+    const prevChain = chain;
+    try { chain = await getChain(s); if (!chain) return null; const exps = expsFor("week", chain.expiration_dates); const { rows } = await contracts(exps, spot, () => {}); if (!rows.length) return null;
+      const x = X.exposures(rows, spot, Date.now()); return { regime: x.regime, flip: x.flip, king: x.king && x.king.k, callWall: x.callWall && x.callWall.k, putWall: x.putWall && x.putWall.k, net: x.total.gex };
+    } finally { chain = prevChain; }
+  }
+  D.gammaApp = { show, build, quick };
 })();

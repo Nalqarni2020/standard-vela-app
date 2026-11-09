@@ -155,6 +155,8 @@
       rule: "The stock fell at least 30% (the base's low against the highest price in the year before the base), then spent 30 sessions inside a range no wider than 25%; today is the first close above the top of that range, on at least 1.5 times the 50-day volume. Buy above the day's high; stop under the base low; target the base top plus the base height." },
     { id: "rbr", label: "Rally-base-rally retest", short: "Base retest", cite: "Demand-zone retest (practitioner); a pullback entry after a confirmed breakout, tested here",
       rule: "Within the last 5 to 30 sessions, a 15-session base no wider than 15% broke out on at least 1.5 times the 50-day volume and then rallied at least one base height; today the price has come back to the top of that base (low within 1% of it) without any close below the base, on light volume (last 3 sessions under 0.8 times the 50-day average). Buy above the day's high; stop under the base low; target the rally's high." },
+    { id: "pead", label: "Earnings surprise drift", short: "Earnings drift", cite: "Post-earnings announcement drift (Bernard and Thomas, 1989; Chan, Jegadeesh and Lakonishok, 1996)", noTarget: true, hold: 40,
+      rule: "Reported earnings per share beat the estimate by 5% or more and the stock rose 2% or more on the reaction day on at least 1.5 times the 50-day volume; 1 to 5 sessions later, no close under the reaction day's low and the price still over the pre-report close. Buy above the day's high; stop under the reaction day's low; no target: exit after 40 sessions or at the stop." },
     { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
       rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
@@ -170,7 +172,7 @@
     const trend = x.s200[i] != null && x.s200[i - 20] != null && c > x.s200[i] && x.s50[i] > x.s200[i] && x.s200[i] >= x.s200[i - 20];
     const mk = (id, entry, stop, target) => {
       const s = SETUPS.find(z => z.id === id); stop = clampStop(entry, stop, a); const risk = entry - stop;
-      if (s.trend) { out.push({ id, label: s.label, entry, stop, target: Infinity, risk, rr: null, trend: true, maxHold: s.maxHold }); return; }   // trend setups ride until the trend turns
+      if (s.trend || s.noTarget) { out.push({ id, label: s.label, entry, stop, target: Infinity, risk, rr: null, trend: !!s.trend, maxHold: s.maxHold, hold: s.hold }); return; }   // trend setups ride until the trend turns; drift setups until their time limit
       if (!(target > entry + 0.5 * risk)) target = entry + 2 * risk; out.push({ id, label: s.label, entry, stop, target, risk, rr: (target - entry) / risk });
     };
     if (trend && ((x.rsi2[i] != null && x.rsi2[i] < 10) || (c < b[i - 1].c && b[i - 1].c < b[i - 2].c && b[i - 2].c < b[i - 3].c)) && c > x.s50[i] * 0.95) {
@@ -202,6 +204,16 @@
       for (let k = i - 282; k <= i - 31; k++) H = Math.max(H, b[k].h);
       for (let k = i - 30; k <= i - 1; k++) { bh = Math.max(bh, b[k].h); bl = Math.min(bl, b[k].l); }
       if (bl > 0 && bl <= 0.7 * H && (bh - bl) / bl <= 0.25 && c > bh && b[i - 1].c <= bh && b[i].v >= 1.5 * x.v50[i - 1]) { const entry = b[i].h + 0.01; mk("base", entry, bl - 0.01, bh + (bh - bl)); }
+    }
+    // earnings surprise drift: needs x.earn from earnEvents (reported EPS against the estimate, mapped to the reaction day)
+    if (x.earn && x.earn.length) {
+      for (const ev of x.earn) {
+        const r = ev.i, since = i - r; if (since < 1 || since > 5 || r < 1 || x.v50[r - 1] == null) continue;
+        if (!(ev.surprise >= 0.05 && b[r].c / b[r - 1].c - 1 >= 0.02 && b[r].v >= 1.5 * x.v50[r - 1])) continue;
+        let held = c > b[r - 1].c; for (let k = r + 1; k <= i && held; k++) if (b[k].c < b[r].l) held = false;
+        if (held) { const entry = b[i].h + 0.01; mk("pead", entry, b[r].l - 0.01, null); }
+        break;
+      }
     }
     if (x.hpF && x.hpF[i] != null && x.hpF[i - 1] != null && x.hpF[i] > x.hpS[i] && x.hpF[i - 1] <= x.hpS[i - 1]) { const entry = b[i].h + 0.01; mk("hp", entry, entry - 2 * a, null); }
     return out;
@@ -239,7 +251,7 @@
           if (exit != null || !filled) break;
           // a trend setup leaves at the next open once its averages cross back down (known at this close)
           if (s.trend && x.hpF[j] != null && x.hpS[j] != null && x.hpF[j] < x.hpS[j] && j + 1 < b.length) { j = j + 1; exit = b[j].o; why = "Trend turned"; break; }
-          if (j - k + 1 >= (s.trend ? s.maxHold : o.hold)) { exit = b[j].c; why = "Time"; break; }
+          if (j - k + 1 >= (s.trend ? s.maxHold : s.hold || o.hold)) { exit = b[j].c; why = "Time"; break; }
         }
         if (!filled) continue;
         const risk = fill - s.stop; if (!(risk > 0)) continue;
@@ -392,8 +404,10 @@
     const planned = trips.filter(t => t.plan);
     if (!planned.length) return { n: 0 };
     const R = planned.map(t => t.R), m = moments(R);
+    // by the pre-trade checklist's verdict when the plan was saved (go / wait / no)
+    const byCheck = {}; ["go", "wait", "no"].forEach(k => { const z = planned.filter(t => t.plan.check === k).map(t => t.R); if (z.length) byCheck[k] = { n: z.length, expR: z.reduce((a, b) => a + b, 0) / z.length, win: z.filter(r => r > 0).length / z.length }; });
     return { n: planned.length, expR: m.mean, win: R.filter(r => r > 0).length / R.length, brokeStop: planned.filter(t => !t.keptStop).length, overHold: planned.filter(t => t.overHold).length,
-      avgSlip: planned.reduce((s, t) => s + t.slip, 0) / planned.length, worstR: Math.min(...R) };
+      avgSlip: planned.reduce((s, t) => s + t.slip, 0) / planned.length, worstR: Math.min(...R), byCheck };
   }
 
   /* ---------- managing an open position ----------
@@ -532,6 +546,101 @@
     return { rows, base, days: baseN, names: sets.length };
   }
 
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy };
+  /* ---------- Earnings events for the drift setup ---------- */
+  /* results: Robinhood earnings rows [{eps: {estimate, actual}, report: {date, timing}}]. The reaction day is the report
+     date for a report before the open ("am") and the next session otherwise. surprise = (actual - estimate) / |estimate|,
+     with the estimate floored at 5 cents so tiny estimates don't explode it. */
+  function earnEvents(b, results) {
+    const out = [];
+    for (const r of results || []) {
+      const e = r && r.eps, rep = r && r.report; if (!e || !rep || !rep.date || e.actual == null || e.estimate == null) continue;
+      const a = +e.actual, est = +e.estimate; if (!isFinite(a) || !isFinite(est)) continue;
+      const i = b.findIndex(x => rep.timing === "am" ? x.d >= rep.date : x.d > rep.date); if (i < 1) continue;
+      out.push({ i, d: b[i].d, report: rep.date, surprise: (a - est) / Math.max(Math.abs(est), 0.05), actual: a, estimate: est });
+    }
+    return out.sort((p, q) => q.i - p.i);   // newest first, so setupsAt checks the latest report
+  }
+
+  /* ---------- Forward record: how a logged signal actually went, on sessions after it was logged ---------- */
+  /* sig: {date (the close the signal came from), entry, stop, target (null or Infinity for none), hold}. The buy-stop is
+     good for the next session only. Same price-path rules as the backtest. */
+  function resolveSignal(b, sig) {
+    const k = b.findIndex(x => x.d > sig.date); if (k < 0) return { status: "pending" };
+    const entry = +sig.entry, stop = +sig.stop, target = sig.target == null || !isFinite(+sig.target) ? Infinity : +sig.target, hold = sig.hold || 10;
+    if (!(b[k].h >= entry)) return { status: "not filled", d: b[k].d };
+    let filled = false, fill = null, exit = null, why = "", j = k;
+    for (; j < b.length; j++) {
+      const pts = pathOf(b[j]);
+      for (let p = 0; p < pts.length && exit == null; p++) {
+        const q = pts[p], a = p ? pts[p - 1] : null;
+        if (!filled) { if (p === 0) { if (q >= entry) { filled = true; fill = q; } continue; } if (!(a < entry && q >= entry)) continue; filled = true; fill = entry; if (q >= target) { exit = target; why = "Target"; } continue; }
+        if (p === 0) { if (q <= stop) { exit = q; why = "Stop"; } else if (q >= target) { exit = q; why = "Target"; } continue; }
+        if (q <= stop && a > stop) { exit = stop; why = "Stop"; } else if (q >= target && a < target) { exit = target; why = "Target"; }
+      }
+      if (exit != null || !filled) break;
+      if (j - k + 1 >= hold) { exit = b[j].c; why = "Time"; break; }
+    }
+    if (!filled) return { status: "not filled", d: b[k].d };
+    const risk = fill - stop; if (!(risk > 0)) return { status: "bad stop" };
+    const open = exit == null; if (open) { j = b.length - 1; exit = b[j].c; why = "Open"; }
+    return { status: open ? "open" : "closed", fill, exit, R: (exit - fill) / risk, why, filledD: b[k].d, exitD: b[Math.min(j, b.length - 1)].d, bars: Math.min(j, b.length - 1) - k + 1 };
+  }
+
+  /* ---------- Insider buying clusters ---------- */
+  /* tx: Webull insider rows [{insider_name, transaction_date, price, shares, side}]. Only open-market buys count (side BUY
+     with a price above zero: grants and option awards come through at price 0). A cluster: 2 or more different insiders
+     buying within 30 days. */
+  const insiderKey = n => { const m = String(n || "").toLowerCase().match(/^([^(]+?)\s*\(([^)\s]+)/); return m ? m[1].trim() + "|" + m[2] : String(n || "").toLowerCase().trim(); };
+  function insiderClusters(tx, o) {
+    o = Object.assign({ days: 30, min: 2 }, o || {});
+    const buys = (tx || []).filter(t => String(t.side).toUpperCase() === "BUY" && +t.price > 0 && +t.shares > 0 && t.transaction_date).map(t => ({ d: t.transaction_date, who: insiderKey(t.insider_name), value: +t.price * +t.shares })).sort((a, b) => a.d < b.d ? -1 : 1);
+    const out = [];
+    for (let i = 0; i < buys.length; i++) {
+      const t0 = Date.parse(buys[i].d) - o.days * 864e5, win = buys.filter((z, k) => k <= i && Date.parse(z.d) >= t0), who = new Set(win.map(z => z.who));
+      if (who.size < o.min) continue;
+      const last = out[out.length - 1], c = { d: buys[i].d, insiders: who.size, value: win.reduce((s, z) => s + z.value, 0) };
+      if (last && Date.parse(c.d) - Date.parse(last.d) <= o.days * 864e5) Object.assign(last, { end: c.d, insiders: Math.max(last.insiders, c.insiders), value: Math.max(last.value, c.value) });
+      else out.push(Object.assign(c, { end: c.d }));
+    }
+    return { buys: buys.length, clusters: out, latest: out.length ? out[out.length - 1] : null };
+  }
+
+  /* ---------- Wash sales ---------- */
+  /* sales: Robinhood realized trades [{symbol, timestamp, realized_gain, side}]. Buying a stock within 30 days after
+     selling it at a loss defers that loss (IRS wash-sale rule). Shows the loss sales in the last 30 days and when the
+     window closes. It cannot judge "substantially identical" securities (for example two funds on the same stock). */
+  function washSale(sales, sym, nowMs) {
+    const now = nowMs == null ? Date.now() : nowMs, cut = now - 30 * 864e5;
+    const hits = (sales || []).filter(t => t.symbol === sym && String(t.side || "sell").toLowerCase() === "sell" && +t.realized_gain < 0 && Date.parse(t.timestamp) >= cut);
+    if (!hits.length) return { risk: false };
+    const last = Math.max(...hits.map(t => Date.parse(t.timestamp)));
+    return { risk: true, loss: hits.reduce((s, t) => s + +t.realized_gain, 0), lastSale: new Date(last).toISOString().slice(0, 10), clearAfter: new Date(last + 31 * 864e5).toISOString().slice(0, 10), n: hits.length };
+  }
+
+  /* ---------- Relative strength: the 12-month return skipping the latest month (Jegadeesh and Titman, 1993) ---------- */
+  function momentum12_1(b) { const n = b.length; return n >= 253 && b[n - 253].c > 0 ? b[n - 22].c / b[n - 253].c - 1 : null; }
+  function rsRanks(sets) {
+    const vals = sets.map(z => ({ sym: z.sym, m: momentum12_1(z.bars) })).filter(z => z.m != null).sort((a, b) => a.m - b.m), out = {};
+    vals.forEach((z, k) => { out[z.sym] = { m: z.m, rank: vals.length > 1 ? Math.round(1 + 98 * k / (vals.length - 1)) : 50 }; });
+    return out;
+  }
+
+  /* After each insider buying cluster (known 2 sessions after its last buy, the Form 4 deadline), the return from the next
+     open over 63 and 126 sessions, minus SPY's over the same days. items: [{sym, clusters, bars}] */
+  function insiderStudy(items, spy) {
+    const H = [63, 126], ev = [], si = new Map((spy || []).map((b, k) => [b.d, k]));
+    for (const it of items) {
+      const b = it.bars || []; for (const c of it.clusters || []) {
+        const j0 = b.findIndex(x => x.d > c.end); if (j0 < 0) continue; const j = j0 + 1; if (j + 1 >= b.length) continue;   // 2 sessions after the last buy
+        const e = b[j + 1].o, ks = si.get(b[j + 1].d); if (!(e > 0)) continue;
+        const fw = H.map(h => { if (j + h >= b.length) return null; const r = b[j + h].c / e - 1; const k2 = ks != null ? si.get(b[j + h].d) : null; return ks != null && k2 != null ? r - (spy[k2].c / spy[ks].o - 1) : null; });
+        ev.push({ sym: it.sym, d: c.end, insiders: c.insiders, value: c.value, fw });
+      }
+    }
+    const st = k => { const a = ev.map(z => z.fw[k]).filter(v => v != null); if (!a.length) return { n: 0 }; const m = a.reduce((x, y) => x + y, 0) / a.length; const sd = a.length > 1 ? Math.sqrt(a.reduce((x, v) => x + (v - m) ** 2, 0) / (a.length - 1)) : 0; return { n: a.length, excess: m, beat: a.filter(v => v > 0).length / a.length, t: sd > 0 ? m / (sd / Math.sqrt(a.length)) : null }; };
+    return { events: ev.sort((a, b) => a.d < b.d ? 1 : -1), h63: st(0), h126: st(1) };
+  }
+
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);
