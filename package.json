@@ -2,7 +2,7 @@
   "name": "standard-vela",
   "private": true,
   "scripts": {
-    "test": "node --test tests/*.test.cjs && node web/tests/analytics.js && node web/tests/playbook.js && node web/tests/exposure.js && node web/tests/quality.js && npm --prefix worker test"
+    "test": "node --test tests/*.test.cjs && node web/tests/analytics.js && node web/tests/playbook.js && node web/tests/exposure.js && node web/tests/quality.js && node web/tests/halal.js && npm --prefix worker test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0"

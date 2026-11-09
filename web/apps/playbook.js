@@ -5,10 +5,10 @@
   "use strict";
   const D = window.Desk, A = window.Analytics, P = window.Playbook, E = D.E;
   const { esc, px, pct, int, money, call } = D;
-  const DEF = { riskPct: 1, lossPct: 3, capPct: 25, costBps: 5, hold: 10, acctOverride: "", minPrice: 5, minDvM: 5, maxSpread: 0.5 };
+  const DEF = { shariahStrict: true, riskPct: 1, lossPct: 3, capPct: 25, costBps: 5, hold: 10, acctOverride: "", minPrice: 5, minDvM: 5, maxSpread: 0.5 };
   let cfg = Object.assign({}, DEF, D.load("pbCfg", {}));
   const saveCfg = () => D.save("pbCfg", cfg);
-  const TABS = [["today", "Today"], ["scan", "Scanner"], ["movers", "Movers"], ["quality", "Quality"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
+  const TABS = [["today", "Today"], ["scan", "Scanner"], ["movers", "Movers"], ["quality", "Quality"], ["halal", "Halal"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
   let root, tab = D.load("pbTab", "today");
   // shared state
   let acct = null, acctValue = null, today = null, gateRes = null, sets = null, setsKey = "", ev = null, evKey = "";
@@ -196,7 +196,7 @@
     root.addEventListener("click", e => { if (e.target.closest("button, a, input, select")) return; const tr = e.target.closest("tr[data-sym]"); if (tr) D.openSymbol(tr.dataset.sym); });
   }
   let drawn = {};
-  function show() { const box = root.querySelector(`[data-pb="${tab}"]`); if (drawn[tab]) return; drawn[tab] = true; ({ today: drawToday, scan: drawScan, movers: drawMovers, quality: drawQuality, size: drawSize, manage: drawManage, edge: drawEdge, evidence: drawEvidence })[tab](box); }
+  function show() { const box = root.querySelector(`[data-pb="${tab}"]`); if (drawn[tab]) return; drawn[tab] = true; ({ today: drawToday, scan: drawScan, movers: drawMovers, quality: drawQuality, halal: drawHalal, size: drawSize, manage: drawManage, edge: drawEdge, evidence: drawEvidence })[tab](box); }
   const busy = (box, t) => { box.innerHTML = `<p class="muted">${esc(t)}</p>`; };
   const fail = (box, e) => { box.innerHTML = '<div class="banner bad">' + esc(e.message || String(e)) + "</div>"; };
   const field = (id, label, val, step, extra) => `<label class="field"><span>${esc(label)}</span><input id="${id}" type="number" inputmode="decimal" step="${step}" value="${esc(String(val))}" ${extra || ""}></label>`;
@@ -304,12 +304,13 @@
       const nowMs = Date.now();
       hits.forEach(x => { x.an = an[x.sym]; x.rep = reps[x.sym]; const q = qs[x.sym]; x.spread = q && q.bid > 0 && q.ask > q.bid ? (q.ask - q.bid) / ((q.ask + q.bid) / 2) : null;
         x.rs = rs[x.sym]; x.ins = ins[x.sym]; x.wash = P.washSale(sales, x.sym, nowMs); });
+      if (cfg.shariahStrict) { busy(out, "Running the Shariah screen on the hits…"); const hl = {}; for (let i = 0; i < hs.length; i += 3) await Promise.all(hs.slice(i, i + 3).map(async sy => { const st0 = st.find(z => z.sym === sy); hl[sy] = await halalFor(sy, st0 ? st0.bars[st0.bars.length - 1].c : null).catch(() => null); })); hits.forEach(x => { x.halal = hl[x.sym]; }); }
       scanHits = hits;
       const [gname, gcls] = VERD[gateRes.verdict];
       let h = `<p class="verdict-line" style="font-size:18px"><span class="pill ${gcls}" style="vertical-align:middle">${esc(gname)}</span> ${esc(`${hits.length} swing setup${hits.length === 1 ? "" : "s"} on ${st.length} names, from closes to ${st[0] ? st[0].bars[st[0].bars.length - 1].d : "—"}. ` + (locked() ? "Sizes are zero: the daily loss limit is reached." : `Sizes use ${mult().toFixed(2)}× of your ${cfg.riskPct}% risk.`))}</p>`;
       h += `<div class="panel"><div class="ph"><h2>Swing setups</h2><span class="eyebrow">Buy-stop orders for the next session</span></div>
         <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Setup</th><th>Last close</th><th>Buy above</th><th>Stop</th><th>Target</th><th>Reward : risk</th><th>Shares</th><th>Risk</th><th>Setup on the list</th><th>On this name</th><th>Volume trend</th><th>RS rank</th><th>Insiders</th><th>Earnings</th><th>Analysts</th><th></th></tr></thead><tbody>
-        ${hits.length ? hits.map(x => `<tr class="clickable" tabindex="0" data-sym="${esc(x.sym)}"><td><b>${esc(x.sym)}</b></td><td>${esc(P.SETUPS.find(s => s.id === x.id).short)}</td><td>${px(x.last)}</td><td>${px(x.entry)}</td><td>${px(x.stop)} <span class="muted">${(x.risk / x.atr).toFixed(1)} ATR</span></td><td>${x.trend ? '<span class="muted">Trend exit</span>' : px(x.target)}</td><td>${x.rr == null ? '<span class="muted">open</span>' : x.rr.toFixed(1)}</td><td>${sharesCell(x.plan)}</td><td>${x.plan.shares ? money(x.plan.riskDollars) : "—"}</td>
+        ${hits.length ? hits.map(x => `<tr class="clickable" tabindex="0" data-sym="${esc(x.sym)}"><td><b>${esc(x.sym)}</b>${x.halal ? " " + halalPill(x.halal) : ""}</td><td>${esc(P.SETUPS.find(s => s.id === x.id).short)}</td><td>${px(x.last)}</td><td>${px(x.entry)}</td><td>${px(x.stop)} <span class="muted">${(x.risk / x.atr).toFixed(1)} ATR</span></td><td>${x.trend ? '<span class="muted">Trend exit</span>' : px(x.target)}</td><td>${x.rr == null ? '<span class="muted">open</span>' : x.rr.toFixed(1)}</td><td>${sharesCell(x.plan)}</td><td>${x.plan.shares ? money(x.plan.riskDollars) : "—"}</td>
           <td>${x.list && x.list.n ? `<span class="chg ${x.list.expR >= 0 ? "up" : "down"}">${R(x.list.expR)}</span> <span class="muted">${x.list.n}</span> <span class="pill ${SHORTV[x.list.verdict.key][1]}" title="${esc(x.list.verdict.text)}">${SHORTV[x.list.verdict.key][0]}</span>` : "—"}</td><td>${x.mine ? `<span class="chg ${x.mine.expR >= 0 ? "up" : "down"}">${R(x.mine.expR)}</span> <span class="muted">${x.mine.n}</span>` : '<span class="muted">none</span>'}</td><td>${x.volUp == null ? "—" : x.volUp ? '<span class="chg up" title="20-day average volume above its level 20 sessions ago">Rising</span>' : '<span class="chg down" title="20-day average volume below its level 20 sessions ago">Falling</span>'}</td><td>${x.rs ? `<span class="chg ${x.rs.rank >= 70 ? "up" : x.rs.rank <= 30 ? "down" : ""}" title="12-month return skipping the last month: ${esc(pct(x.rs.m))}">${x.rs.rank}</span>` : "—"}</td><td>${insCell(x.ins)}</td><td>${repCell(x.rep)}${x.wash && x.wash.risk ? ` <span class="pill fail" title="Sold at a loss on ${esc(x.wash.lastSale)} (${esc(money(x.wash.loss))}). Buying again before ${esc(x.wash.clearAfter)} defers that loss for taxes.">Wash sale until ${esc(x.wash.clearAfter.slice(5))}</span>` : ""}${x.spread != null && x.spread * 100 > cfg.maxSpread ? ` <span class="pill fail" title="Bid-ask spread now">Spread ${(x.spread * 100).toFixed(1)}%</span>` : ""}</td><td>${anCell(x.an, x.entry)}</td><td><button class="btn small" type="button" data-plan="${hits.indexOf(x)}">Save plan</button></td></tr>`).join("") : '<tr><td colspan="17" class="muted">No setups on the last close.</td></tr>'}
         </tbody></table></div>
         <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. RS rank: the 12-month return skipping the last month, ranked 1 to 99 across the list (momentum; Jegadeesh and Titman, 1993). Insiders: two or more different insiders buying on the open market within 30 days (grants and option awards excluded; Cohen, Malloy and Pomorski, 2012). A wash-sale pill means you sold this stock at a loss on Robinhood in the last 30 days: buying it back before the date shown defers that loss for US taxes (two funds on the same stock may also count; ask a tax adviser). Every setup shown is saved to the signals log and followed forward on the Evidence tab. Volume trend: the 20-day average volume against its level 20 sessions earlier; on your list, setups taken with rising volume have done better (see Evidence). Analysts: Robinhood's share of Buy ratings and the average price target against the entry; context, not a rule. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
@@ -551,6 +552,56 @@
     } catch (e) { fail(out, e); }
   }
 
+  /* ---------- Halal: Shariah screen (AAOIFI Standard 21) ---------- */
+  const HL = window.Halal, halalCache = new Map();
+  function halalFor(sym, price) {
+    const key = sym + "|" + (price ? price.toFixed(2) : "");
+    if (!halalCache.has(key)) halalCache.set(key, (async () => {
+      const [bs, is, prof, fu] = await Promise.all([D.wb.balanceSheet(sym).catch(() => null), D.wb.incomeAnnual(sym).catch(() => null), D.wb.profile(sym).catch(() => null), call("get_equity_fundamentals", { symbols: [sym] }, 6 * 3600000).catch(() => null)]);
+      const f = fu && fu.results && fu.results[0] ? fu.results[0] : {};
+      const industry = [].concat((prof && prof.industries) || [], f.sector || [], f.industry || []).join(" · ");
+      const res = HL.screen({ biz: { industry, description: (prof && prof.profile) || f.description || "", name: (prof && prof.company_name) || "" }, bs, is, price });
+      return Object.assign(res, { industry, sym });
+    })());
+    return halalCache.get(key);
+  }
+  const HKEY = { pass: "pass", fail: "fail", doubt: "", unknown: "", fund: "" };
+  const halalPill = h => !h ? '<span class="muted">—</span>' : `<span class="pill ${HKEY[h.key]}" title="${esc(h.why.join(". ") || h.business.reason)}">${esc(h.label)}</span>`;
+  function drawHalal(box) {
+    box.innerHTML = `<div class="tools" style="margin-bottom:12px;flex-wrap:wrap;gap:10px"><button class="btn small primary" id="pbHlRun" type="button">Screen the list</button>
+        <label style="font-size:13px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="pbHlStrict" ${cfg.shariahStrict ? "checked" : ""}> A non-compliant stock makes the pre-trade checklist say No</label><span class="muted" style="font-size:13px" id="pbHlNote"></span></div><div id="pbHlOut"><p class="muted">Screening…</p></div>`;
+    box.querySelector("#pbHlStrict").onchange = e => { cfg.shariahStrict = e.target.checked; saveCfg(); };
+    box.querySelector("#pbHlRun").onclick = () => halalList(box);
+    halalList(box);
+  }
+  async function halalList(box) {
+    const out = box.querySelector("#pbHlOut");
+    if (!cfg.listId) { out.innerHTML = '<p class="muted">Choose a list above.</p>'; return; }
+    try {
+      const syms = [...new Set(await D.listSymbols(cfg.listId))].slice(0, 40);
+      busy(out, "Reading prices…");
+      const q = await D.quotes(syms).catch(() => ({})), rows = [];
+      for (let i = 0; i < syms.length; i += 3) {
+        busy(out, `Screening ${Math.min(i + 3, syms.length)} of ${syms.length}…`);
+        const got = await Promise.all(syms.slice(i, i + 3).map(s0 => halalFor(s0, D.lastPrice(q[s0])).catch(() => null)));
+        got.forEach((h, k) => rows.push(h || { sym: syms[i + k], key: "unknown", label: "Not enough data", why: ["No data came back."], business: { reason: "" }, ratios: null }));
+        if (D.wb.state === "off") break;
+      }
+      if (D.wb.state === "off") { out.innerHTML = `<div class="banner">${esc(D.wb.why())} The screen needs Webull's balance sheets, income statements and company profiles.</div>`; return; }
+      const order = { pass: 0, doubt: 1, unknown: 2, fund: 3, fail: 4 };
+      rows.sort((a, b) => order[a.key] - order[b.key] || a.sym.localeCompare(b.sym));
+      const cnt = k => rows.filter(r => r.key === k).length, p1 = v => v == null ? "—" : (v * 100).toFixed(v < 0.1 ? 1 : 0) + "%";
+      const lim = (v, l) => v == null ? '<span class="muted">—</span>' : `<span class="chg ${v >= l ? "down" : "up"}">${p1(v)}</span>`;
+      out.innerHTML = `<p class="verdict-line" style="font-size:18px">${esc(`${cnt("pass")} compliant, ${cnt("doubt")} doubtful, ${cnt("fail")} not compliant, ${cnt("fund")} funds, ${cnt("unknown")} without enough data, of ${rows.length}.`)}</p>
+        <div class="panel"><div class="ph"><h2>Shariah screen</h2><span class="eyebrow">AAOIFI Standard 21 · latest reports</span></div>
+        <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Verdict</th><th>Business</th><th>Debt / market value</th><th>Cash and deposits / market value</th><th>Interest income / revenue (est.)</th><th>Purify</th><th>Why</th></tr></thead><tbody>
+        ${rows.map(r => { const R0 = r.ratios || {}; return `<tr class="clickable" tabindex="0" data-sym="${esc(r.sym)}"><td><b>${esc(r.sym)}</b></td><td>${halalPill(r)}</td><td style="white-space:normal;min-width:160px"><span class="muted" style="font-size:12px">${esc((r.industry || "").slice(0, 70) || "—")}</span></td><td>${lim(R0.debtRatio, 0.3)}</td><td>${lim(R0.cashRatio, 0.3)}</td><td>${lim(R0.impure, 0.05)}</td><td>${r.key === "pass" && r.purify != null ? p1(r.purify) : "—"}</td><td style="white-space:normal;min-width:220px;font-size:12px">${esc(r.why.join(". ") || r.business.reason)}</td></tr>`; }).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">The AAOIFI screen (Shariah Standard No. 21), the most widely used. <b>Business:</b> the company's industry must not be conventional banking, lending or insurance, alcohol, pork, gambling, tobacco, adult entertainment or cannabis; crypto mining, weapons, entertainment, financial services and hospitality are marked doubtful, because scholars differ or it depends on the share of revenue. <b>Finances</b>, against today's market value: interest-bearing debt under 30%; cash plus interest-bearing deposits and investments under 30%; interest and other non-permissible income under 5% of revenue. <b>Purify:</b> the estimated share of income to give away from dividends and gains on a compliant stock. Webull reports interest only as a net figure, so interest income is estimated (a positive net figure, capped at 6% of cash and investments), and non-permissible revenue from business lines (for example alcohol sales in a hotel) can't be seen in these reports. Funds are not screened: screen their holdings; leveraged and inverse funds use swaps and borrowing and are generally not compliant. Some standards use a 33% limit or a 36-month average market value, so a stock near a limit can pass one standard and fail another. This is a screen from public data, not a fatwa: for a final ruling, ask a qualified scholar or use a dedicated service.</div></div>`;
+      box.querySelector("#pbHlNote").textContent = `Webull reports as of ${rows.map(r => r.ratios && r.ratios.asOf).filter(Boolean).sort().pop() || "—"}`;
+    } catch (e) { fail(out, e); }
+  }
+
   /* ---------- Size a trade ---------- */
   function drawSize(box) {
     const sym = (D.S && D.S.sym) || "";
@@ -585,9 +636,9 @@
       const hi20 = x.hi20[i], hi252 = x.hi252[i] != null ? x.hi252[i] : Math.max(...b.map(z => z.h));
       const lo20 = Math.min(...b.slice(-20).map(z => z.l));
       const live = b.length > 260 ? P.setupsAt(b, x, i, liq()) : [];
-      const [rep, conc, research, qual, insT, sales] = await Promise.all([nextRep(sym), dir > 0 ? concentration(sym, s.value).catch(() => null) : null, researchFor(sym, b, x, last).catch(() => null), qualityOne(sym, b).catch(() => null), D.wb.insiders(sym).catch(() => null), recentSales().catch(() => [])]);
+      const [rep, conc, research, qual, insT, sales, halal] = await Promise.all([nextRep(sym), dir > 0 ? concentration(sym, s.value).catch(() => null) : null, researchFor(sym, b, x, last).catch(() => null), qualityOne(sym, b).catch(() => null), D.wb.insiders(sym).catch(() => null), recentSales().catch(() => []), halalFor(sym, last).catch(() => null)]);
       const thinNow = !P.liquid(b, x, i, liq());
-      const ck = checklist({ sym, dir, b, x, i, s, rep, conc, qual, ins: insT ? P.insiderClusters(insT) : null, wash: P.washSale(sales, sym, Date.now()), live, thinNow });
+      const ck = checklist({ sym, dir, b, x, i, s, rep, conc, qual, ins: insT ? P.insiderClusters(insT) : null, wash: P.washSale(sales, sym, Date.now()), live, thinNow, halal });
       const [gname, gcls] = VERD[gateRes.verdict];
       out.innerHTML = `
         ${locked() ? '<div class="banner bad" style="margin-bottom:10px">Daily loss limit reached: the size is zero for the rest of today.</div>' : ""}
@@ -637,6 +688,8 @@
     if (m != null) add(long ? (m > 0 ? "ok" : "warn") : "ok", `12-month momentum ${pct(m)}${rk ? `, rank ${rk.rank} of 99 on the list` : ""}.`);
     if (o.ins && o.ins.latest && Date.now() - Date.parse(o.ins.latest.end) < 120 * 864e5) add("ok", `Insider buying cluster: ${o.ins.latest.insiders} insiders, ${o.ins.latest.d}${o.ins.latest.end !== o.ins.latest.d ? " to " + o.ins.latest.end : ""}.`);
     if (o.wash && o.wash.risk) add("warn", `Wash sale: sold at a loss on ${o.wash.lastSale} (${money(o.wash.loss)}); buying before ${o.wash.clearAfter} defers that loss for taxes.`);
+    if (o.halal) { const h = o.halal; add(h.key === "pass" ? "ok" : h.key === "fail" ? (cfg.shariahStrict ? "no" : "warn") : "warn", `Shariah screen: ${h.label}${h.key === "pass" ? (h.purify ? `, purify about ${(h.purify * 100).toFixed(1)}% of dividends and gains` : "") : h.why.length ? ` (${h.why[0]})` : ""}.`); }
+    if (o.dir < 0 && cfg.shariahStrict) add("no", "Short selling is generally not permitted under the Shariah screen (selling what you don't own).");
     if (o.s && !o.s.shares) add("no", "The size comes out at zero.");
     const no = R0.some(r => r.mark === "no"), setupOk = R0.some(r => r.mark === "ok" && r.text.startsWith("Setup live"));
     const warns = R0.filter(r => r.mark === "warn").length;

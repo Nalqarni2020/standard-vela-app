@@ -85,3 +85,13 @@ each stock when each quarter became public (45 days after quarter end, 75 for th
   wide, closing above the 50-day; the first return into the gap that closes above its bottom; buy above that day's high,
   stop under the gap, 2R target, 10 days. On the watchlist backtest (37 names, Feb 2025 to Nov 2026) it lost -0.09R over
   48 liquid trades; it is kept to be measured by the forward record, not trusted.
+
+## Playbook → Halal (Shariah screen)
+
+`apps/halal-core.js` (tested in `tests/halal.js`). AAOIFI Shariah Standard No. 21: the business screen on the company's
+industry classification (conventional finance and insurance, alcohol, pork, gambling, tobacco, adult entertainment and
+cannabis fail; crypto mining, weapons, entertainment, financial services and hospitality are doubtful), and the
+financial screen against market value: interest-bearing debt under 30%, cash and interest-bearing investments under
+30%, estimated interest income under 5% of revenue, plus a purification share. Funds are flagged for a holdings check.
+Shown as a tab for the list, a line in the pre-trade checklist (optionally a hard No) and a badge on Scanner signals.
+Sources: Webull balance sheet, income statement and company profile; Robinhood sector and industry. A screen, not a fatwa.
