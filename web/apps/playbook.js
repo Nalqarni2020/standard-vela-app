@@ -376,7 +376,8 @@
       const r = await D.wb.ranking("move", "PRE_MARKET", q.dir > 0 ? "DESC" : "ASC");
       return { rows: r && r.map(x => Object.assign(x, { gap: x.chg, indicated: true })), note: "Before the open: the gap is the pre-market price against yesterday's close, so it can change by 9:30." };
     }
-    const lists = await Promise.all([D.wb.ranking("move", "DAY_1", "DESC"), D.wb.ranking("move", "DAY_1", "ASC"), D.wb.ranking("active", "TURNOVER"), D.wb.ranking("active", "RELATIVE_VOLUME_10D")]);
+    // each list is optional: one refused by Webull should not sink the board
+    const lists = await Promise.all([D.wb.ranking("move", "DAY_1", "DESC"), D.wb.ranking("move", "DAY_1", "ASC"), D.wb.ranking("active", "TURNOVER"), D.wb.ranking("active", "RELATIVE_VOLUME_10D")].map(p0 => p0.catch(() => null)));
     if (lists.every(l => !l)) return { rows: null, note: "" };
     const seen = new Map(); lists.forEach(l => (l || []).forEach(r => { if (!seen.has(r.sym)) seen.set(r.sym, r); }));
     const rows = [...seen.values()].filter(r => r.open > 0 && r.prev > 0).map(r => Object.assign(r, { gap: r.open / r.prev - 1 })).filter(r => q.dir > 0 ? r.gap >= 0.02 : r.gap <= -0.02).sort((a, b) => q.dir > 0 ? b.gap - a.gap : a.gap - b.gap);

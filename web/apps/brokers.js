@@ -88,11 +88,18 @@
     /* Market-wide rankings (read-only). kind "move": gainers or losers over rank (PRE_MARKET, DAY_1, DAY_5, MONTH_1...);
        kind "active": most active by rank (VOLUME, TURNOVER, RELATIVE_VOLUME_10D). Up to 100 rows, as plain numbers. */
     async ranking(kind, rank, dir, size) {
-      const input = kind === "active" ? { category: "US_STOCK", rank_type: rank, sort_by: rank === "TURNOVER" ? "TURNOVER" : rank === "RELATIVE_VOLUME_10D" ? "RELATIVE_VOLUME_10D" : "VOLUME", direction: "DESC", page_size: String(size || 100) }
+      const map = r => ({ sym: r.symbol, name: r.name, open: num(r.open), high: num(r.high), low: num(r.low), price: num(r.price) ?? num(r.close), prev: num(r.pre_close), chg: num(r.change_ratio), vol: num(r.volume), rvol: num(r.relative_volume_10d), turnover: num(r.turnover_rate), mcap: num(r.market_value) });
+      const rows = d => Array.isArray(d) ? d : d && Array.isArray(d.data) ? d.data : null;
+      if (kind === "active" && rank === "TURNOVER") {
+        // Sorting by dollar turnover needs a Webull permission many accounts lack: read the top 200 by share volume and rank by price x volume here.
+        const pages = await Promise.all(["1", "2"].map(pg => wbCall("get_most_active", { category: "US_STOCK", rank_type: "VOLUME", sort_by: "VOLUME", direction: "DESC", page_size: "100", page_index: pg }, 120000).catch(() => null)));
+        const all = pages.map(rows).filter(Boolean).flat(); if (!all.length) return pages.every(p => p === null) ? null : [];
+        const seen = new Set(); return all.filter(isStock).map(map).filter(r => !seen.has(r.sym) && (seen.add(r.sym), true)).sort((a, b) => (b.price || 0) * (b.vol || 0) - (a.price || 0) * (a.vol || 0)).slice(0, size || 100);
+      }
+      const input = kind === "active" ? { category: "US_STOCK", rank_type: rank, sort_by: rank === "RELATIVE_VOLUME_10D" ? "RELATIVE_VOLUME_10D" : "VOLUME", direction: "DESC", page_size: String(size || 100) }
         : { category: "US_STOCK", rank_type: rank, sort_by: "CHANGE_RATIO", direction: dir || "DESC", page_size: String(size || 100) };
-      const d = await wbCall(kind === "active" ? "get_most_active" : "get_gainers_losers", input, 120000);
-      const rows = Array.isArray(d) ? d : d && Array.isArray(d.data) ? d.data : null; if (!rows) return null;
-      return rows.filter(isStock).map(r => ({ sym: r.symbol, name: r.name, open: num(r.open), high: num(r.high), low: num(r.low), price: num(r.price) ?? num(r.close), prev: num(r.pre_close), chg: num(r.change_ratio), vol: num(r.volume), rvol: num(r.relative_volume_10d), turnover: num(r.turnover_rate), mcap: num(r.market_value) }));
+      const r = rows(await wbCall(kind === "active" ? "get_most_active" : "get_gainers_losers", input, 120000)); if (!r) return null;
+      return r.filter(isStock).map(map);
     },
     /* Quarterly indicators: ROE, ROA, liabilities to assets, diluted EPS, operating cash flow and book value per share (up to 20 quarters). */
     async indicators(sym) { const d = await wbCall("get_financial_indicators", { symbol: sym, category: "US_STOCK", type: "QUARTERLY", count: 20 }, 6 * 3600000); return d && d.values ? d.values : null; },
