@@ -6,7 +6,7 @@ import { Settings, watchlistSymbols } from "../../settings";
 import { Theme, px, pct, int, money, mono } from "../../theme";
 import { Card, Pill, KV, Banner, Seg } from "../../ui";
 
-/* The swing parts of the web desk's Playbook: the market gate, the Bottom watch on SPY and QQQ, the seven setups on
+/* The swing parts of the web desk's Playbook: the market gate, the Bottom watch on SPY and QQQ, the nine setups on
    your watchlist with entries, stops and risk-based sizes, and how each setup did on your watchlist's last three years.
    The phone's prices end 16 minutes ago, so day setups stay on the web desk. Same rules and code as the web desk. */
 const VERD: Record<string, [string, boolean | null, string]> = {

@@ -80,3 +80,8 @@ each stock when each quarter became public (45 days after quarter end, 75 for th
 - **RS rank**: the 12-month return skipping the last month, ranked 1 to 99 across the list.
 - **Alerts**: the after-close report and a midday check (scheduled in Claude) send one phone notification when a saved
   plan triggers or a holding breaks its stop. Read-only towards the brokers.
+
+- **Fair value gap retest** (setup 9, `fvg`): a bullish gap (a day's low above the high two days earlier) at least 1 ATR
+  wide, closing above the 50-day; the first return into the gap that closes above its bottom; buy above that day's high,
+  stop under the gap, 2R target, 10 days. On the watchlist backtest (37 names, Feb 2025 to Nov 2026) it lost -0.09R over
+  48 liquid trades; it is kept to be measured by the forward record, not trusted.

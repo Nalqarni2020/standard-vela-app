@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 8); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
+  assert.equal(ev.rows.length, 9); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -366,6 +366,22 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   const stock = mk(300, i => 10 * (1 + 0.004 * i)), spy = mk(300, i => 100);
   const r = P.insiderStudy([{ sym: 'X', clusters: [{ end: day(10).d, insiders: 2, value: 1e6 }], bars: stock }], spy);
   assert.equal(r.events.length, 1); assert.equal(r.h63.n, 1); near(r.h63.excess, stock[12 + 63].c / stock[13].o - 1, 1e-9);
+  ok();
+}
+// fair value gap retest: a 1+ ATR bullish gap above the 50-day, first touched later and held, fires once
+{
+  const b = []; let p = 50;
+  for (let i = 0; i < 300; i++) { p *= 1.002; b.push(Object.assign(day(i), { o: p, h: p * 1.004, l: p * 0.996, c: p, v: 1e6 })); }
+  const f = 280, base = b[f - 2].h;
+  b[f - 1] = Object.assign(day(f - 1), { o: base, h: base * 1.08, l: base * 0.999, c: base * 1.07, v: 3e6 });
+  b[f] = Object.assign(day(f), { o: base * 1.07, h: base * 1.1, l: base * 1.05, c: base * 1.09, v: 2e6 });   // low 5% above the high two days back
+  for (let i = f + 1; i < 300; i++) b[i] = Object.assign(day(i), { o: base * 1.09, h: base * 1.095, l: base * 1.06, c: base * 1.08, v: 1e6 });
+  b[290] = Object.assign(day(290), { o: base * 1.07, h: base * 1.075, l: base * 1.03, c: base * 1.06, v: 1e6 });   // first dip into the gap (top = base*1.05), close above its bottom
+  const x = P.prep(b);
+  const hit = P.setupsAt(b, x, 290).find(z => z.id === 'fvg');
+  assert(hit, 'fires on the first retest'); { const a = x.atr[290], d = Math.min(Math.max(hit.entry - (base - 0.01), 0.75 * a), 2.5 * a); near(hit.stop, hit.entry - d, 1e-9); }
+  b[291] = Object.assign(day(291), { o: base * 1.06, h: base * 1.07, l: base * 1.04, c: base * 1.06, v: 1e6 });
+  assert(!P.setupsAt(b, P.prep(b), 291).some(z => z.id === 'fvg'), 'only the first touch counts');
   ok();
 }
 console.log('playbook tests passed:', n);

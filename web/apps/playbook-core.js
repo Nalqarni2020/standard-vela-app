@@ -157,6 +157,8 @@
       rule: "Within the last 5 to 30 sessions, a 15-session base no wider than 15% broke out on at least 1.5 times the 50-day volume and then rallied at least one base height; today the price has come back to the top of that base (low within 1% of it) without any close below the base, on light volume (last 3 sessions under 0.8 times the 50-day average). Buy above the day's high; stop under the base low; target the rally's high." },
     { id: "pead", label: "Earnings surprise drift", short: "Earnings drift", cite: "Post-earnings announcement drift (Bernard and Thomas, 1989; Chan, Jegadeesh and Lakonishok, 1996)", noTarget: true, hold: 40,
       rule: "Reported earnings per share beat the estimate by 5% or more and the stock rose 2% or more on the reaction day on at least 1.5 times the 50-day volume; 1 to 5 sessions later, no close under the reaction day's low and the price still over the pre-report close. Buy above the day's high; stop under the reaction day's low; no target: exit after 40 sessions or at the stop." },
+    { id: "fvg", label: "Fair value gap retest", short: "FVG retest", cite: "Practitioner pattern (ICT, 'fair value gap'); no published evidence, tested here",
+      rule: "A bullish fair value gap in the last 20 sessions: a day whose low is above the high two days earlier, the gap at least 1 ATR wide, closing above the 50-day average. Today is the first day back into the gap (low at or under its top) and the close held above its bottom. Buy above today's high; stop under the gap's bottom; target 2R; 10-day time exit." },
     { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
       rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
@@ -204,6 +206,14 @@
       for (let k = i - 282; k <= i - 31; k++) H = Math.max(H, b[k].h);
       for (let k = i - 30; k <= i - 1; k++) { bh = Math.max(bh, b[k].h); bl = Math.min(bl, b[k].l); }
       if (bl > 0 && bl <= 0.7 * H && (bh - bl) / bl <= 0.25 && c > bh && b[i - 1].c <= bh && b[i].v >= 1.5 * x.v50[i - 1]) { const entry = b[i].h + 0.01; mk("base", entry, bl - 0.01, bh + (bh - bl)); }
+    }
+    // fair value gap retest: the most recent qualifying bullish gap in the last 20 sessions, first touched today and held
+    for (let f = i - 1; f >= Math.max(2, i - 20); f--) {
+      const top = b[f].l, bot = b[f - 2].h, af = x.atr[f];
+      if (!(top > bot) || !(af > 0) || top - bot < af || !(x.s50[f] != null && b[f].c > x.s50[f])) continue;
+      let first = true; for (let k = f + 1; k < i; k++) if (b[k].l <= top) { first = false; break; }
+      if (first && b[i].l <= top && c >= bot) { const entry = b[i].h + 0.01; mk("fvg", entry, bot - 0.01, null); }
+      break;   // only the most recent qualifying gap counts
     }
     // earnings surprise drift: needs x.earn from earnEvents (reported EPS against the estimate, mapped to the reaction day)
     if (x.earn && x.earn.length) {
