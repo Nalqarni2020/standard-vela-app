@@ -13,9 +13,23 @@ const VERD: Record<string, [string, boolean | null, string]> = {
   go: ["Go", true, "Full size."], half: ["Half size", null, "Trade smaller: the market is mixed."], aside: ["Stand aside", false, "No new longs: the market is against them."],
 };
 const LIQ = { minPrice: 5, minDollarVol: 5e6 };
+/* Indicator readings from Playbook.indicatorsAt, in words. */
+const MOM: Record<string, string> = { "bearish building": "Negative, growing", "bearish fading": "Negative, fading", "bullish building": "Positive, growing", "bullish fading": "Positive, fading" };
+const crossTxt = (c: any) => c ? (c.up ? "crossed above " : "crossed under ") + c.d : "no cross in 150 sessions";
+function indItems(t: any, tag: string): [string, string][] {
+  if (!t) return [[tag, "Not enough history"]];
+  return [
+    [tag + " · RSI 14", t.rsi == null ? "—" : t.rsi.toFixed(1) + " " + (t.rsiZone === "oversold" ? "oversold" : t.rsiZone === "overbought" ? "overbought" : "neutral") + (t.rsiDivergence ? " · bullish divergence" : "")],
+    [tag + " · MACD histogram", t.hist == null ? "—" : t.hist.toFixed(2) + " · " + (MOM[t.momentum] || "—") + (t.macdDivergence ? " · bullish divergence" : "")],
+    [tag + " · EMA 8 / 21", t.emaUp == null ? "—" : (t.emaUp ? "8 above 21" : "8 under 21") + " · " + crossTxt(t.emaCross)],
+    [tag + " · SMA 20 / 50", t.smaUp == null ? "—" : (t.smaUp ? "20 above 50" : "20 under 50") + " · " + crossTxt(t.smaCross)],
+    [tag + " · Close vs averages", t.close > Math.max(t.ema8, t.ema21, t.sma20, t.sma50 ?? -Infinity) ? "Above all four" : t.close < Math.min(t.ema8, t.ema21, t.sma20, t.sma50 ?? Infinity) ? "Below all four" : "Mixed"],
+  ];
+}
+const indLine = (t: any) => !t ? "—" : `RSI ${t.rsi == null ? "—" : t.rsi.toFixed(0)}${t.rsiZone === "oversold" ? " oversold" : t.rsiZone === "overbought" ? " overbought" : ""} · MACD ${(MOM[t.momentum] || "—").toLowerCase()} · EMA 8 ${t.emaUp ? "above" : "under"} 21 · SMA 20 ${t.smaUp ? "above" : "under"} 50`;
 const R = (v: number | null | undefined) => v == null || !isFinite(v) ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
 
-type Data = { gate: any; sets: { sym: string; bars: Bar[]; x: any }[]; ev: any; asOf: string; bw: [string, any][] };
+type Data = { gate: any; sets: { sym: string; bars: Bar[]; x: any }[]; ev: any; asOf: string; bw: [string, any, Bar[]][] };
 
 export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Settings }) {
   const [data, setData] = useState<Data | null>(null), [err, setErr] = useState<string | null>(null), [busy, setBusy] = useState(false), [prog, setProg] = useState("");
@@ -38,7 +52,7 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       const gate = Playbook.gate(spy, vix, pct50);
       const ev = sets.length ? Playbook.evidence(sets, { hold: 10, cost: 0.0005, liq: LIQ, trials: Playbook.SETUPS.length }) : null;
       const leaders = sets.map(z => ({ bars: z.bars }));
-      const bw: [string, any][] = [["SPY", Playbook.bottomWatch(spy, vix, leaders)], ["QQQ", (m.QQQ || []).length > 60 ? Playbook.bottomWatch(m.QQQ, vix, leaders) : null]];
+      const bw: [string, any, Bar[]][] = [["SPY", Playbook.bottomWatch(spy, vix, leaders), spy], ["QQQ", (m.QQQ || []).length > 60 ? Playbook.bottomWatch(m.QQQ, vix, leaders) : null, m.QQQ || []]];
       setData({ gate, sets, ev, asOf: spy[spy.length - 1].d, bw });
     } catch (e: any) { setErr(e instanceof ApiError ? e.message : e?.message || "Could not read the data."); }
     finally { setBusy(false); setProg(""); }
@@ -54,7 +68,7 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       Playbook.setupsAt(s.bars, s.x, i, LIQ).forEach((h: any) => {
         const plan = Playbook.sizePlan({ account: settings.account, riskPct: riskPct / 100, mult: data.gate.sizeMult, entry: h.entry, stop: h.stop, capPct: settings.capPct / 100 });
         const volUp = s.x.v20[i] != null && s.x.v20[i - 20] != null ? s.x.v20[i] > s.x.v20[i - 20] : null;
-        out.push({ ...h, sym: s.sym, last: s.bars[i].c, atr: s.x.atr[i], plan, list: evRows[h.id], volUp, rs: rs[s.sym] });
+        out.push({ ...h, sym: s.sym, last: s.bars[i].c, atr: s.x.atr[i], plan, list: evRows[h.id], volUp, rs: rs[s.sym], ind: Playbook.indicatorsAt(s.bars, i) });
       });
     });
     return out.sort((a, b) => ((b.list && b.list.expR) ?? -9) - ((a.list && a.list.expR) ?? -9));
@@ -82,7 +96,7 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
         <Text style={{ color: theme.ink3, fontSize: 12, padding: 14 }}>Score {g.score > 0 ? "+" : ""}{g.score}. Go needs +2 or better with the S&P above its 200-day and the VIX at 30 or lower; stand aside at −1 or worse or with the VIX above 35; otherwise half size.{g.volScale < 1 ? ` Sizes are also scaled by ${g.volScale.toFixed(2)} because the VIX is above its one-year median.` : ""} The VIX here is the St. Louis Fed's daily close and can lag a day.</Text>
       </Card></>);
     else if (view === "bottom") body = (<>{head}
-      {data.bw.map(([name, w]) => (
+      {data.bw.map(([name, w, bars]) => (
         <Card key={name} theme={theme} title={"Bottom watch · " + name} right={<Pill theme={theme} ok={w && w.state === "confirmed" ? true : null} text={!w ? "No data" : w.state === "confirmed" ? "Confirmed" : w.state === "forming" ? "May be forming" : w.state === "early" ? "Early" : "No bottom process"} />}>
           {!w || !w.capitulation ? <Text style={{ color: theme.ink3, padding: 14 }}>No capitulation day (down 2.5% or more on twice the 50-day volume) in the last 25 sessions.</Text> : (
             <KV theme={theme} items={[
@@ -92,8 +106,18 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
               ["4 Leaders hold", w.leaders ? (w.signs[3] ? "Yes" : "Not yet") + " · " + w.leaders.held + " of " + w.leaders.n : "Add tickers to your watchlist"],
               ["5 Follow-through", w.rally.ftd ? "Yes · " + w.rally.ftd.d + ", day " + w.rally.ftd.day + ", " + pct(w.rally.ftd.ret) : (w.rally.day1 ? "Rally day " + w.rally.dayCount + (w.rally.earliestFtdIn ? " · earliest in " + w.rally.earliestFtdIn + " session" + (w.rally.earliestFtdIn === 1 ? "" : "s") : "") : "No up close since the low")],
               ["Restarts below", px(w.rally.low)]]} />)}
+          {(() => {
+            if (!bars || bars.length < 60) return null;
+            const li = w && w.rally ? bars.findIndex(b => b.d === w.rally.lowD) : -1, last = bars.length - 1;
+            const atLow = li >= 0 && li !== last ? Playbook.indicatorsAt(bars, li) : null;
+            return (<>
+              <Text style={{ color: theme.ink, fontWeight: "700", paddingHorizontal: 14, paddingTop: 10 }}>Indicators{atLow ? " at the support test and now" : " now"}</Text>
+              {atLow ? <KV theme={theme} items={indItems(atLow, "Low " + bars[li].d.slice(5))} /> : null}
+              <KV theme={theme} items={indItems(Playbook.indicatorsAt(bars, last), "Close " + bars[last].d.slice(5))} />
+            </>);
+          })()}
         </Card>))}
-      <Text style={{ color: theme.ink3, fontSize: 12, marginBottom: 12 }}>You don't predict bottoms, you confirm them. Signs 1 to 4 say a bottom may be forming; only a follow-through day (day 4 or later of a rally attempt, up 1.25% or more on higher volume) confirms, and many fail, so start small. The VIX here is the St. Louis Fed's daily close and can lag a day.</Text>
+      <Text style={{ color: theme.ink3, fontSize: 12, marginBottom: 12 }}>You don't predict bottoms, you confirm them. Signs 1 to 4 say a bottom may be forming; only a follow-through day (day 4 or later of a rally attempt, up 1.25% or more on higher volume) confirms, and many fail, so start small. Indicators: RSI at 30 or under is oversold, and a bullish divergence is a lower low with a higher RSI or MACD histogram than the low 4 to 30 sessions before; a negative MACD histogram that is fading means selling pressure is easing. Oversold readings and average crosses lag and are not buy signals on their own. The VIX here is the St. Louis Fed's daily close and can lag a day.</Text>
     </>);
     else if (view === "evidence") body = (<>{head}
       {data.ev ? <Card theme={theme} title="How the setups did" right={<Text style={{ color: theme.ink3, fontSize: 11 }}>{data.ev.names} NAMES</Text>}>
@@ -116,7 +140,7 @@ export function PlaybookDesk({ theme, settings }: { theme: Theme; settings: Sett
       </View>
       {hits.length ? hits.map((h, k) => (
         <Card key={h.sym + h.id + k} theme={theme} title={h.sym} right={<Text style={{ color: theme.ink3, fontSize: 11 }}>{(Playbook.SETUPS.find((z: any) => z.id === h.id) || {}).short?.toUpperCase()}</Text>}>
-          <KV theme={theme} items={[["Buy above", px(h.entry)], ["Stop", px(h.stop) + " · " + (h.risk / h.atr).toFixed(1) + " ATR"], ["Target", px(h.target)], ["Shares", h.plan.shares ? int(h.plan.shares) : g.verdict === "aside" ? "Stand aside" : "—"], ["At risk", h.plan.shares ? money(h.plan.riskDollars) : "—"], ["Setup on your list", h.list && h.list.n ? R(h.list.expR) + " · " + h.list.n : "—"], ["Volume trend", h.volUp == null ? "—" : h.volUp ? "Rising" : "Falling"], ["RS rank", h.rs ? h.rs.rank + " of 99" : "—"]]} />
+          <KV theme={theme} items={[["Buy above", px(h.entry)], ["Stop", px(h.stop) + " · " + (h.risk / h.atr).toFixed(1) + " ATR"], ["Target", px(h.target)], ["Shares", h.plan.shares ? int(h.plan.shares) : g.verdict === "aside" ? "Stand aside" : "—"], ["At risk", h.plan.shares ? money(h.plan.riskDollars) : "—"], ["Setup on your list", h.list && h.list.n ? R(h.list.expR) + " · " + h.list.n : "—"], ["Volume trend", h.volUp == null ? "—" : h.volUp ? "Rising" : "Falling"], ["RS rank", h.rs ? h.rs.rank + " of 99" : "—"], ["Indicators", indLine(h.ind)]]} />
         </Card>)) : <Text style={{ color: theme.ink3, marginBottom: 12 }}>No setups on the last close{uni.length ? "" : ": add tickers to your watchlist in Settings"}.</Text>}
       <Text style={{ color: theme.ink3, fontSize: 12, marginBottom: 12 }}>Buy-stop orders for the next session; an order not filled that day is cancelled. Names under $5 or trading under $5 million a day are skipped. Check earnings dates before holding a swing trade. The web desk's Playbook flags them, trails your stops on its Manage tab and checks saved plans against your fills.</Text>
     </>);
