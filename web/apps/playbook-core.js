@@ -651,6 +651,30 @@
     return { events: ev.sort((a, b) => a.d < b.d ? 1 : -1), h63: st(0), h126: st(1) };
   }
 
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy };
+  /* ---------- Indicators at a support test: RSI(14), MACD(12,26,9) and the short averages ---------- */
+  /* At bar i: RSI(14) and its zone; the MACD histogram's sign and direction over 2 bars (momentum building or fading);
+     the last MACD line/signal cross; EMA 8 against EMA 21 and SMA 20 against SMA 50, with the date of their last cross;
+     and bullish divergence: a lower low than the lowest low 4 to 30 bars earlier while RSI or the MACD histogram is higher. */
+  function indicatorsAt(b, i) {
+    const E = En(); if (!b || i < 35 || i >= b.length) return null;
+    const c = b.map(x => x.c), rsi = E.rsi(c, 14), m = E.macd(c), e8 = E.ema(c, 8), e21 = E.ema(c, 21), s20 = E.sma(c, 20), s50 = E.sma(c, 50);
+    const lastCross = (a, z) => { for (let k = i; k > Math.max(1, i - 150); k--) { if (a[k] == null || z[k] == null || a[k - 1] == null || z[k - 1] == null) break; if ((a[k] > z[k]) !== (a[k - 1] > z[k - 1])) return { d: b[k].d, up: a[k] > z[k], ago: i - k }; } return null; };
+    const h = m.hist[i], h2 = m.hist[i - 2];
+    const mom = h == null || h2 == null ? null : h < 0 ? (h < h2 ? "bearish building" : "bearish fading") : (h > h2 ? "bullish building" : "bullish fading");
+    let pj = -1; for (let k = Math.max(0, i - 30); k <= i - 4; k++) if (pj < 0 || b[k].l < b[pj].l) pj = k;
+    const lowerLow = pj >= 0 && b[i].l < b[pj].l;
+    return {
+      d: b[i].d, close: c[i],
+      rsi: rsi[i], rsiZone: rsi[i] == null ? null : rsi[i] <= 30 ? "oversold" : rsi[i] >= 70 ? "overbought" : "neutral",
+      macd: m.line[i], signal: m.sig[i], hist: h, momentum: mom, macdCross: lastCross(m.line, m.sig),
+      ema8: e8[i], ema21: e21[i], emaUp: e8[i] != null && e21[i] != null ? e8[i] > e21[i] : null, emaCross: lastCross(e8, e21),
+      sma20: s20[i], sma50: s50[i], smaUp: s20[i] != null && s50[i] != null ? s20[i] > s50[i] : null, smaCross: lastCross(s20, s50),
+      prevLow: pj >= 0 ? { d: b[pj].d, low: b[pj].l, rsi: rsi[pj], hist: m.hist[pj] } : null,
+      rsiDivergence: !!(lowerLow && rsi[i] != null && rsi[pj] != null && rsi[i] > rsi[pj]),
+      macdDivergence: !!(lowerLow && h != null && m.hist[pj] != null && h > m.hist[pj]),
+    };
+  }
+
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);

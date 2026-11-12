@@ -240,6 +240,17 @@
       '<p class="muted" style="font-size:12px;margin:10px 0 0">Sizing uses ' + (cfg.sizeFrom === "wb" ? "the Webull account" : cfg.sizeFrom === "both" ? "Robinhood and Webull together" : "the Robinhood account") + '. Robinhood\'s figure counts closed sales only; Webull\'s day P&amp;L also counts open positions, so with Webull included the lock can come earlier, never later. Options and crypto are not included.</p>';
   }
   /* Bottom watch: the five signs of a market bottom on SPY and QQQ, scored the same way every day. */
+  const MOM = { "bearish building": ["Bearish momentum building", "down"], "bearish fading": ["Bearish momentum fading", "up"], "bullish building": ["Bullish momentum building", "up"], "bullish fading": ["Bullish momentum fading", "down"] };
+  function indCells(t) {
+    if (!t) return ["—", "—", "—", "—"];
+    const cross = (up, c, a, b0) => `<span class="chg ${up ? "up" : "down"}">${esc(a)} ${up ? "above" : "under"} ${esc(b0)}</span>${c ? ` <span class="muted">since ${esc(c.d.slice(5))}</span>` : ""}`;
+    return [
+      t.rsi == null ? "—" : `<b>${t.rsi.toFixed(1)}</b> ${t.rsiZone === "oversold" ? '<span class="pill pass">Oversold</span>' : t.rsiZone === "overbought" ? '<span class="pill fail">Overbought</span>' : '<span class="muted">neutral</span>'}${t.rsiDivergence ? ' <span class="pill pass" title="A lower low than the earlier low, with a higher RSI">Bullish divergence</span>' : ""}`,
+      t.momentum ? `<span class="chg ${MOM[t.momentum][1]}">${esc(MOM[t.momentum][0])}</span> <span class="muted">hist ${t.hist.toFixed(2)}</span>${t.macdDivergence ? ' <span class="pill pass" title="A lower low with a higher MACD histogram">Divergence</span>' : ""}` : "—",
+      t.emaUp == null ? "—" : cross(t.emaUp, t.emaCross, "EMA 8", "EMA 21"),
+      t.smaUp == null ? "—" : cross(t.smaUp, t.smaCross, "SMA 20", "SMA 50"),
+    ];
+  }
   function renderBottom(box) {
     const el = box.querySelector("#pbBottom"); if (!el || !spyB) return;
     const leaders = (sets || []).map(z => ({ bars: z.bars }));
@@ -259,7 +270,13 @@
       <div class="scroll"><table class="dt"><thead><tr><th>Sign</th>${W.map(([s0, w]) => `<th style="text-align:start">${s0} <span class="pill ${w ? STATE[w.state][1] : ""}">${esc(w ? STATE[w.state][0] : "—")}</span></th>`).join("")}</tr></thead><tbody>
       ${["1. Capitulation volume", "2. Fear spike", "3. Selling slows", "4. Leaders hold up", "5. Follow-through day"].map((lbl, k) => `<tr><td><b>${lbl}</b></td>${W.map(([, w]) => `<td style="white-space:normal;text-align:start">${cell(w, k)}</td>`).join("")}</tr>`).join("")}
       </tbody></table></div>
-      <div class="pb muted" style="font-size:12px">Capitulation: a day down 2.5% or more on twice the 50-day volume, in the last 25 sessions. Fear: the VIX up 40% or more around it. Selling slows: the last 3 sessions' range at most 60% and volume at most 70% of that day's. Leaders: the list's top third by 3-month strength before it, 60% of them still above their low from that day. Follow-through (O'Neil): day 4 or later of a rally attempt, up 1.25% or more on higher volume than the day before; a trade below the low starts the count again. Signs 1 to 4 say a bottom may be forming; only sign 5 confirms, and even then many follow-through days fail, so start small. Closed bars only.</div></div>`;
+      <div class="pb muted" style="font-size:12px">Capitulation: a day down 2.5% or more on twice the 50-day volume, in the last 25 sessions. Fear: the VIX up 40% or more around it. Selling slows: the last 3 sessions' range at most 60% and volume at most 70% of that day's. Leaders: the list's top third by 3-month strength before it, 60% of them still above their low from that day. Follow-through (O'Neil): day 4 or later of a rally attempt, up 1.25% or more on higher volume than the day before; a trade below the low starts the count again. Signs 1 to 4 say a bottom may be forming; only sign 5 confirms, and even then many follow-through days fail, so start small. Closed bars only.</div>
+      <div class="ph" style="border-top:1px solid var(--rule)"><h2 style="font-size:15px">Indicators at the support test and now</h2><span class="eyebrow">RSI 14 · MACD 12, 26, 9 · short averages</span></div>
+      <div class="scroll"><table class="dt"><thead><tr><th>Fund</th><th>When</th><th>Close</th><th>RSI</th><th>MACD momentum</th><th>EMA 8 / 21</th><th>SMA 20 / 50</th></tr></thead><tbody>
+      ${[["SPY", spyB], ["QQQ", qqqB || []]].map(([n, b]) => { const w = (W.find(z => z[0] === n) || [])[1]; const lowD = w && w.rally ? w.rally.lowD : null; const li = lowD ? b.findIndex(x => x.d === lowD) : -1;
+        return [[li, "At the low" + (lowD ? " (" + lowD.slice(5) + ")" : "")], [b.length - 1, "Last close"]].filter(([k]) => k >= 0).map(([k, lbl]) => { const t = P.indicatorsAt(b, k), cc = indCells(t); return `<tr><td><b>${n}</b></td><td>${esc(lbl)}</td><td>${t ? px(t.close) : "—"}</td><td style="white-space:normal">${cc[0]}</td><td style="white-space:normal">${cc[1]}</td><td style="white-space:normal">${cc[2]}</td><td style="white-space:normal">${cc[3]}</td></tr>`; }).join(""); }).join("")}
+      </tbody></table></div>
+      <div class="pb muted" style="font-size:12px">What to look for at a support test: RSI at or under 30 (oversold), or better a bullish divergence (a lower low with a higher RSI than the earlier low); the MACD histogram turning from "bearish building" to "bearish fading" (selling losing force); and the short averages: EMA 8 under EMA 21 means the short trend is still down, and SMA 20 crossing under SMA 50 is a lagging sign that the fall was real. Evidence: oversold RSI alone has been a weak timing tool on indexes, and average crossovers lag; they describe the condition, they don't confirm a bottom. The follow-through day above is the confirmation.</div></div>`;
   }
   function renderGate(box) {
     const g = gateRes, el = box.querySelector("#pbGate"); if (!g || !el) return;
@@ -684,6 +701,8 @@
     if (o.conc && o.conc.hits && o.conc.hits.length) add("warn", `Moves with what you hold (${o.conc.hits.map(h => h.sym).join(", ")}).`);
     if (o.qual && o.qual.quality != null) add(o.qual.quality >= 70 ? "ok" : o.qual.quality < 40 ? (long ? "warn" : "ok") : "ok", `Quality ${o.qual.quality}, value ${o.qual.value == null ? "—" : o.qual.value}${o.qual.pe ? `, P/E ${o.qual.pe.toFixed(1)}` : ""}.`);
     const tr = o.qual && o.qual.trend; if (tr && long) add(tr === "up" ? "ok" : tr === "down" ? "warn" : "warn", `Trend: ${tr === "up" ? "above a rising 200-day" : tr === "down" ? "below the 200-day" : "mixed"}.`);
+    const it = P.indicatorsAt(o.b, o.b.length - 1);
+    if (it) add(long ? (it.emaUp && it.smaUp ? "ok" : !it.emaUp && !it.smaUp ? "warn" : "ok") : "ok", `RSI ${it.rsi.toFixed(0)}${it.rsiZone !== "neutral" ? " (" + it.rsiZone + ")" : ""}${it.rsiDivergence ? ", bullish divergence" : ""}; MACD ${it.momentum || "—"}; EMA 8 ${it.emaUp ? "above" : "under"} EMA 21; SMA 20 ${it.smaUp ? "above" : "under"} SMA 50.`);
     const m = P.momentum12_1(o.b), rk = sets ? P.rsRanks(sets.concat(sets.some(z => z.sym === o.sym) ? [] : [{ sym: o.sym, bars: o.b }]))[o.sym] : null;
     if (m != null) add(long ? (m > 0 ? "ok" : "warn") : "ok", `12-month momentum ${pct(m)}${rk ? `, rank ${rk.rank} of 99 on the list` : ""}.`);
     if (o.ins && o.ins.latest && Date.now() - Date.parse(o.ins.latest.end) < 120 * 864e5) add("ok", `Insider buying cluster: ${o.ins.latest.insiders} insiders, ${o.ins.latest.d}${o.ins.latest.end !== o.ins.latest.d ? " to " + o.ins.latest.end : ""}.`);

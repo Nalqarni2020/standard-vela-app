@@ -384,4 +384,15 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert(!P.setupsAt(b, P.prep(b), 291).some(z => z.id === 'fvg'), 'only the first touch counts');
   ok();
 }
+// indicators at a support test: a falling series is oversold with bearish MACD and bearish crosses; a V-bounce turns them
+{
+  const mk = f => Array.from({ length: 120 }, (_, i) => { const p = f(i); return Object.assign(day(i), { o: p, h: p * 1.01, l: p * 0.99, c: p, v: 1e6 }); });
+  const down = mk(i => i < 60 ? 100 + i * 0.2 : 112 - (i - 60) * 0.8);
+  const a = P.indicatorsAt(down, 119);
+  assert.equal(a.rsiZone, 'oversold'); assert(a.hist < 0); assert.equal(a.emaUp, false); assert.equal(a.smaUp, false); assert(a.emaCross && !a.emaCross.up);
+  const v = mk(i => i < 100 ? 100 + i * 0.2 - (i > 80 ? (i - 80) * 1.2 : 0) : 96 + (i - 100) * 0.9);
+  const b = P.indicatorsAt(v, 119); assert(b.momentum === 'bearish fading' || /bullish/.test(b.momentum)); assert(b.rsi > 50);
+  assert.equal(P.indicatorsAt(down, 10), null);
+  ok();
+}
 console.log('playbook tests passed:', n);
