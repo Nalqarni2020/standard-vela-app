@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 9); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
+  assert.equal(ev.rows.length, 10); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -393,6 +393,28 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   const v = mk(i => i < 100 ? 100 + i * 0.2 - (i > 80 ? (i - 80) * 1.2 : 0) : 96 + (i - 100) * 0.9);
   const b = P.indicatorsAt(v, 119); assert(b.momentum === 'bearish fading' || /bullish/.test(b.momentum)); assert(b.rsi > 50);
   assert.equal(P.indicatorsAt(down, 10), null);
+  ok();
+}
+// accumulation: heavy up days and closes near the highs grade A; the mirror image grades E; a study runs
+{
+  const mk = upHeavy => { const b = []; let p = 50; for (let i = 0; i < 160; i++) { const up = i % 2 === 0; p *= up ? 1.01 : 0.992; const v = (up === upHeavy) ? 2e6 : 1e6; const c = p, h = p * 1.01, l = p * 0.99; b.push(Object.assign(day(i), { o: p, h, l, c: upHeavy ? h - (h - l) * 0.1 : l + (h - l) * 0.1, v })); } return b; };
+  const A = P.accumulation(mk(true), 159), Z = P.accumulation(mk(false), 159);
+  assert.equal(A.grade, 'A'); assert(A.ud > 1.5 && A.cmf > 0.2 && A.acc > A.dist);
+  assert.equal(Z.grade, 'E'); assert(Z.ud < 1 && Z.cmf < 0);
+  assert.equal(P.accumulation(mk(true), 30), null);
+  const S = P.accStudy(['A', 'B', 'C', 'D', 'E', 'F'].map((s, k) => ({ sym: s, bars: mk(k % 2 === 0) })), { liq: null });
+  assert(S.rows.find(r => r.id === 'A').h[21].n > 0 && S.dates > 0);
+  ok();
+}
+// 21 EMA pullback: a stacked uptrend whose low tags the 21-day EMA and closes above it fires; a close below it does not
+{
+  const b = []; let p = 50; for (let i = 0; i < 300; i++) { p *= 1.003; b.push(Object.assign(day(i), { o: p, h: p * 1.005, l: p * 0.995, c: p, v: 2e6 })); }
+  let x = P.prep(b); const e = x.e21[298];
+  b[299] = Object.assign(day(299), { o: b[298].c, h: b[298].c * 1.002, l: e * 0.999, c: e * 1.01, v: 2e6 });
+  x = P.prep(b); const hit = P.setupsAt(b, x, 299).find(z => z.id === 'ema21');
+  assert(hit, 'fires on the touch'); near(hit.target, hit.entry + 2 * hit.risk, 1e-9); assert(hit.stop < hit.entry && hit.risk <= 2.5 * x.atr[299] + 1e-9);
+  b[299] = Object.assign(day(299), { o: b[298].c, h: b[298].c, l: e * 0.98, c: e * 0.99, v: 2e6 });
+  assert(!P.setupsAt(b, P.prep(b), 299).some(z => z.id === 'ema21'), 'a close under the EMA does not count');
   ok();
 }
 console.log('playbook tests passed:', n);

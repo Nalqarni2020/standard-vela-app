@@ -140,7 +140,7 @@
       if (i >= 4) { let m = Infinity; for (let k = i - 4; k <= i; k++) m = Math.min(m, b[k].l); lo5[i] = m; }
     }
     const hp = hpSeries(c);
-    return { s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), v20: E.sma(v, 20), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
+    return { e9: E.ema(c, 9), e21: E.ema(c, 21), e50: E.ema(c, 50), s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), v20: E.sma(v, 20), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
   }
   const SETUPS = [
     { id: "pullback", label: "Pullback in an uptrend", short: "Pullback", cite: "Short-term reversal (Jegadeesh, 1990; Lehmann, 1990) inside a trend (Moskowitz, Ooi and Pedersen, 2012)",
@@ -159,6 +159,8 @@
       rule: "Reported earnings per share beat the estimate by 5% or more and the stock rose 2% or more on the reaction day on at least 1.5 times the 50-day volume; 1 to 5 sessions later, no close under the reaction day's low and the price still over the pre-report close. Buy above the day's high; stop under the reaction day's low; no target: exit after 40 sessions or at the stop." },
     { id: "fvg", label: "Fair value gap retest", short: "FVG retest", cite: "Practitioner pattern (ICT, 'fair value gap'); no published evidence, tested here",
       rule: "A bullish fair value gap in the last 20 sessions: a day whose low is above the high two days earlier, the gap at least 1 ATR wide, closing above the 50-day average. Today is the first day back into the gap (low at or under its top) and the close held above its bottom. Buy above today's high; stop under the gap's bottom; target 2R; 10-day time exit." },
+    { id: "ema21", label: "Pullback to the 21-day EMA", short: "21 EMA pullback", cite: "Practitioner pattern; tested here against the 9- and 50-day versions (the 21-day did best, and only slightly)",
+      rule: "EMA 9 above EMA 21 above EMA 50 and the close above the 50-day average; today's low touches the 21-day EMA and the close holds above it. Buy above today's high; stop a quarter ATR under the lower of the low and the EMA; target 2R; 10-day time exit." },
     { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
       rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
@@ -225,6 +227,10 @@
         break;
       }
     }
+    // pullback to the 21-day EMA inside a stacked uptrend
+    if (x.e21 && x.e9[i] != null && x.e50[i] != null && x.s50[i] != null && x.e9[i] > x.e21[i] && x.e21[i] > x.e50[i] && c > x.s50[i] && b[i].l <= x.e21[i] && c > x.e21[i]) {
+      const entry = b[i].h + 0.01; mk("ema21", entry, Math.min(b[i].l, x.e21[i]) - 0.25 * a, null);
+    }
     if (x.hpF && x.hpF[i] != null && x.hpF[i - 1] != null && x.hpF[i] > x.hpS[i] && x.hpF[i - 1] <= x.hpS[i - 1]) { const entry = b[i].h + 0.01; mk("hp", entry, entry - 2 * a, null); }
     return out;
   }
@@ -239,7 +245,7 @@
     o = Object.assign({ hold: 10, cost: 0.0005, from: 252 }, o || {});
     const trades = [], next = {};
     for (let i = o.from; i < b.length - 1; i++) {
-      for (const s of setupsAt(b, x, i, o.liq)) {
+      for (const s of (o.setupsFn || setupsAt)(b, x, i, o.liq)) {
         if ((next[s.id] || 0) > i) continue;
         const k = i + 1; if (!(b[k].h >= s.entry)) continue;
         let filled = false, fill = null, exit = null, why = "", j = k;
@@ -675,6 +681,77 @@
     };
   }
 
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt };
+
+  /* Accumulation from price and volume, at bar i (a daily-data stand-in for "institutions are buying", which needs
+     quarterly 13F filings this desk cannot read):
+     - up/down volume: volume on up-close days over volume on down-close days, last 50 sessions (IBD's U/D ratio);
+     - accumulation and distribution days, last 25 sessions: a close up (down) 0.2% or more on higher volume than
+       the day before (O'Neil's distribution-day count, both directions);
+     - Chaikin money flow, 20 sessions: where the close sits in each day's range, weighted by volume (Chaikin).
+     Each maps to 0-100 and the average is the score; grades A (80+) to E (under 20). */
+  function accumulation(b, i) {
+    if (!b || i < 50 || i >= b.length) return null;
+    let up = 0, dn = 0; for (let k = i - 49; k <= i; k++) { if (b[k].c > b[k - 1].c) up += b[k].v; else if (b[k].c < b[k - 1].c) dn += b[k].v; }
+    let acc = 0, dist = 0; for (let k = i - 24; k <= i; k++) { const r = b[k].c / b[k - 1].c - 1, more = b[k].v > b[k - 1].v; if (more && r >= 0.002) acc++; else if (more && r <= -0.002) dist++; }
+    let mf = 0, vv = 0; for (let k = i - 19; k <= i; k++) { const rg = b[k].h - b[k].l; if (rg > 0) mf += ((b[k].c - b[k].l) - (b[k].h - b[k].c)) / rg * b[k].v; vv += b[k].v; }
+    const ud = dn > 0 ? up / dn : (up > 0 ? 3 : 1), cmf = vv > 0 ? mf / vv : 0;
+    const lin = (v, lo, hi) => Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100));
+    const score = Math.round((lin(ud, 0.7, 1.5) + lin(acc - dist, -6, 6) + lin(cmf, -0.2, 0.2)) / 3);
+    const grade = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : score >= 20 ? "D" : "E";
+    return { ud, acc, dist, cmf, score, grade };
+  }
+  /* Does the score predict? items: [{sym, bars}]. Every 5th session (a weekly cross-section), each liquid name gets
+     its score; the forward return is from the next open to the close 21 and 63 sessions later. Returns are compared
+     with the average of all names on the same date (excess), so a rising market doesn't flatter any grade. The
+     t-statistic is shrunk for overlapping windows (21 sessions sampled every 5 overlap about 4 times; 63, about 12). */
+  function accStudy(items, o) {
+    o = Object.assign({ step: 5, liq: { minPrice: 5, minDollarVol: 5e6 } }, o || {});
+    const H = [21, 63], byDate = new Map();
+    for (const it of items) {
+      const b = it.bars; if (!b || b.length < 120) continue; const x = it.x || prep(b);
+      for (let i = 60; i + 1 < b.length; i += o.step) {
+        if (!liquid(b, x, i, o.liq)) continue;
+        const a = accumulation(b, i); if (!a) continue;
+        const e = b[i + 1].o, fw = H.map(h => i + h < b.length ? b[i + h].c / e - 1 : null);
+        const trend = x.s50[i] != null && b[i].c > x.s50[i];
+        const d = b[i].d; if (!byDate.has(d)) byDate.set(d, []); byDate.get(d).push({ sym: it.sym, g: a.grade, s: a.score, trend, fw });
+      }
+    }
+    const groups = [["A", z => z.g === "A"], ["B", z => z.g === "B"], ["C", z => z.g === "C"], ["D", z => z.g === "D"], ["E", z => z.g === "E"], ["AB+trend", z => (z.g === "A" || z.g === "B") && z.trend], ["DE", z => z.g === "D" || z.g === "E"]];
+    const rows = groups.map(([id, f]) => {
+      const out = { id, h: {} };
+      H.forEach((h, k) => {
+        const ex = []; let n = 0, win = 0, sum = 0;
+        for (const list of byDate.values()) {
+          const all = list.filter(z => z.fw[k] != null); if (all.length < 5) continue;
+          const sel = all.filter(f); if (!sel.length) continue;
+          const avg = all.reduce((s, z) => s + z.fw[k], 0) / all.length;
+          sel.forEach(z => { ex.push(z.fw[k] - avg); n++; sum += z.fw[k]; if (z.fw[k] > avg) win++; });
+        }
+        const m = ex.length ? ex.reduce((s, v) => s + v, 0) / ex.length : null;
+        const sd = ex.length > 1 ? Math.sqrt(ex.reduce((s, v) => s + (v - m) ** 2, 0) / (ex.length - 1)) : null;
+        const eff = ex.length / (h / o.step);
+        out.h[h] = { n, avg: n ? sum / n : null, excess: m, beat: n ? win / n : null, t: m != null && sd > 0 && eff > 1 ? m / (sd / Math.sqrt(eff)) : null };
+      });
+      return out;
+    });
+    const dates = [...byDate.keys()].sort();
+    return { rows, dates: dates.length, from: dates[0] || null, to: dates[dates.length - 1] || null, names: new Set([].concat(...[...byDate.values()].map(l => l.map(z => z.sym)))).size };
+  }
+  /* EMA pullback, for testing: in a stacked uptrend (EMA 9 over 21 over 50, close over the 50-day), today's low
+     touches the chosen EMA and the close holds above it. Buy above the high; stop a quarter ATR under the lower of
+     the low and the EMA (clamped 0.75 to 2.5 ATR); target 2R; 10-day exit. n: 9, 21 or 50. */
+  function emaPullbackFn(n) {
+    return (b, x, i, liq) => {
+      if (i < 252 || !liquid(b, x, i, liq)) return [];
+      if (!x._e) { const c = b.map(z => z.c), E = En(); x._e = { 9: E.ema(c, 9), 21: E.ema(c, 21), 50: E.ema(c, 50) }; }
+      const e9 = x._e[9][i], e21 = x._e[21][i], e50 = x._e[50][i], e = x._e[n][i], a = x.atr[i];
+      if ([e9, e21, e50, e, a].some(v => v == null || !isFinite(v)) || !(e9 > e21 && e21 > e50 && b[i].c > x.s50[i])) return [];
+      if (!(b[i].l <= e && b[i].c > e)) return [];
+      const entry = b[i].h + 0.01, stop = clampStop(entry, Math.min(b[i].l, e) - 0.25 * a, a), risk = entry - stop;
+      return [{ id: "ema" + n, label: "EMA " + n + " pullback", entry, stop, target: entry + 2 * risk, risk, rr: 2 }];
+    };
+  }
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);
