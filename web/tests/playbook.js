@@ -71,7 +71,7 @@ const series = (n, f, v) => Array.from({ length: n }, (_, i) => { const c = f(i)
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const sets = Array.from({ length: 12 }, (_, k) => { let p = 50; return { sym: 'R' + k, bars: Array.from({ length: 700 }, (_, i) => { const o = p; p = p * (1 + (rnd() - 0.5) * 0.04 + 0.0004); const h = Math.max(o, p) * (1 + rnd() * 0.01), l = Math.min(o, p) * (1 - rnd() * 0.01); return Object.assign(day(i), { o, h, l, c: p, v: 1e6 * (0.5 + rnd() * (rnd() < 0.03 ? 6 : 1)) }); }) }; });
   const ev = P.evaluate ? null : P.evidence(sets, { hold: 10, cost: 0.0005, trials: 20, priorSrs: [0.1, -0.05, 0.02] });
-  assert.equal(ev.rows.length, 10); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
+  assert.equal(ev.rows.length, 11); assert(ev.trials === 20); assert(ev.rows.every(r => r.volUp && r.volDown && r.volUp.n + r.volDown.n <= r.n));
   ev.rows.forEach(r => { if (r.n >= 30) assert(r.verdict.key !== 'holds' || r.deflated.dsr >= 0.95); });
   assert(ev.trades.length > 50, 'trades: ' + ev.trades.length); ok();
 }
@@ -415,6 +415,18 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert(hit, 'fires on the touch'); near(hit.target, hit.entry + 2 * hit.risk, 1e-9); assert(hit.stop < hit.entry && hit.risk <= 2.5 * x.atr[299] + 1e-9);
   b[299] = Object.assign(day(299), { o: b[298].c, h: b[298].c, l: e * 0.98, c: e * 0.99, v: 2e6 });
   assert(!P.setupsAt(b, P.prep(b), 299).some(z => z.id === 'ema21'), 'a close under the EMA does not count');
+  ok();
+}
+// momentum buildup: a leader (RS rank 70+) that dips and turns back up fires; the same chart without a rank does not
+{
+  const mk = (drift, dipLen, dip, up) => { const b = []; let p = 50; for (let i = 0; i < 320; i++) { let r = drift; if (i >= 290 && i < 290 + dipLen) r = -dip; else if (i >= 290 + dipLen) r = up; p *= 1 + r; b.push(Object.assign(day(i), { o: p, h: p * 1.006, l: p * 0.994, c: p, v: 2e6 })); } return b; };
+  const sets = [[0.003, 4, 0.015, 0.008], [0.0005, 0, 0, 0.0005], [0, 0, 0, 0], [-0.001, 0, 0, -0.001], [0.001, 0, 0, 0.001], [0.002, 0, 0, 0.002]].map((a, k) => { const b = mk(...a); return { sym: 'S' + k, bars: b, x: P.prep(b) }; });
+  P.rsRankSeries(sets);
+  const top = sets[0];
+  assert(top.x.rsr[301] >= 70, 'strongest name ranks high'); assert(sets[3].x.rsr[301] <= 30, 'weakest ranks low'); assert.equal(top.x.rsr[100], null, 'no rank before 252 bars');
+  const h = P.setupsAt(top.bars, top.x, 301).find(z => z.id === 'mom');
+  assert(h, 'fires on the turn'); assert.equal(h.target, Infinity); assert.equal(h.hold, 20); assert(h.stop < h.entry);
+  assert(!P.setupsAt(top.bars, P.prep(top.bars), 301).some(z => z.id === 'mom'), 'without an RS rank it never fires');
   ok();
 }
 console.log('playbook tests passed:', n);

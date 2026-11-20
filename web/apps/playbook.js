@@ -36,6 +36,7 @@
     const syms = [...new Set(await D.listSymbols(id))].slice(0, 60);
     const bars = await D.dailyBars(syms, 1100, (i, n) => msg && msg(`Reading history ${i} of ${n}…`));
     sets = syms.map(sym => ({ sym, bars: bars[sym] || [] })).filter(s => s.bars.length >= 60).map(s => Object.assign(s, { x: P.prep(s.bars) }));
+    P.rsRankSeries(sets);   // point-in-time RS rank for the momentum buildup setup
     // earnings history for the drift setup
     for (let i = 0; i < sets.length; i += 6) {
       msg && msg(`Reading earnings history ${Math.min(i + 6, sets.length)} of ${sets.length}…`);

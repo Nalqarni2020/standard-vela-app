@@ -140,7 +140,7 @@
       if (i >= 4) { let m = Infinity; for (let k = i - 4; k <= i; k++) m = Math.min(m, b[k].l); lo5[i] = m; }
     }
     const hp = hpSeries(c);
-    return { e9: E.ema(c, 9), e21: E.ema(c, 21), e50: E.ema(c, 50), s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), v20: E.sma(v, 20), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
+    return { e9: E.ema(c, 9), e21: E.ema(c, 21), e50: E.ema(c, 50), rsi14: E.rsi(c, 14), mh: E.macd(c).hist, rsr: null, s20: E.sma(c, 20), s50: E.sma(c, 50), s200: E.sma(c, 200), rsi2: E.rsi(c, 2), atr: E.atr(b, 14), v50: E.sma(v, 50), v20: E.sma(v, 20), dv20: E.sma(b.map(x => x.c * x.v), 20), hi252, hi20, lo5, hpT: hp.T, hpF: hp.fast, hpS: hp.slow };
   }
   const SETUPS = [
     { id: "pullback", label: "Pullback in an uptrend", short: "Pullback", cite: "Short-term reversal (Jegadeesh, 1990; Lehmann, 1990) inside a trend (Moskowitz, Ooi and Pedersen, 2012)",
@@ -161,6 +161,8 @@
       rule: "A bullish fair value gap in the last 20 sessions: a day whose low is above the high two days earlier, the gap at least 1 ATR wide, closing above the 50-day average. Today is the first day back into the gap (low at or under its top) and the close held above its bottom. Buy above today's high; stop under the gap's bottom; target 2R; 10-day time exit." },
     { id: "ema21", label: "Pullback to the 21-day EMA", short: "21 EMA pullback", cite: "Practitioner pattern; tested here against the 9- and 50-day versions (the 21-day did best, and only slightly)",
       rule: "EMA 9 above EMA 21 above EMA 50 and the close above the 50-day average; today's low touches the 21-day EMA and the close holds above it. Buy above today's high; stop a quarter ATR under the lower of the low and the EMA; target 2R; 10-day time exit." },
+    { id: "mom", label: "Momentum buildup", short: "Momentum buildup", noTarget: true, hold: 20, cite: "Momentum (Jegadeesh and Titman, 1993) timed by a MACD turn; tested here: +0.29R over 20 days on 86 stocks, 2023 to 2026, t 1.9 after trying about 15 versions, so not proven",
+      rule: "A leader (RS rank 70 or higher on the list) whose momentum is turning up: the MACD histogram rose three days running and crossed above zero within the last five sessions; RSI(14) between 55 and 70, up from 40 to 60 five sessions ago; the close above a rising 21-day EMA. Buy above today's high; stop a quarter ATR under the 21-day EMA; no target: exit after 20 sessions or at the stop." },
     { id: "hp", label: "HP-filter trend turn", short: "HP trend", cite: "Kakushadze and Serur (2018), section 8.1; Hodrick and Prescott (1997)", trend: true, maxHold: 60,
       rule: "The Hodrick-Prescott trend of the closes, recomputed each day on the past 252 sessions only (lambda 6,350,400), has its 10-day average cross above its 50-day average. Buy above the high; stop 2 ATR under the entry; no target: exit at the next open after the averages cross back down, or after 60 sessions." },
   ];
@@ -231,6 +233,13 @@
     if (x.e21 && x.e9[i] != null && x.e50[i] != null && x.s50[i] != null && x.e9[i] > x.e21[i] && x.e21[i] > x.e50[i] && c > x.s50[i] && b[i].l <= x.e21[i] && c > x.e21[i]) {
       const entry = b[i].h + 0.01; mk("ema21", entry, Math.min(b[i].l, x.e21[i]) - 0.25 * a, null);
     }
+    // momentum buildup: a list leader whose MACD histogram is turning up through zero with RSI rising into 55-70
+    if (x.rsr && x.rsr[i] >= 70 && x.mh && x.mh[i - 5] != null && x.rsi14[i - 5] != null && x.e21[i - 3] != null) {
+      const h = x.mh, r = x.rsi14; let crossed = false; for (let k = i - 4; k <= i; k++) if (h[k] > 0 && h[k - 1] <= 0) crossed = true;
+      if (h[i] > 0 && crossed && h[i] > h[i - 1] && h[i - 1] > h[i - 2] && h[i - 2] > h[i - 3] && r[i] >= 55 && r[i] <= 70 && r[i] > r[i - 5] && r[i - 5] >= 40 && r[i - 5] <= 60 && c > x.e21[i] && x.e21[i] > x.e21[i - 3]) {
+        const entry = b[i].h + 0.01; mk("mom", entry, x.e21[i] - 0.25 * a, null);
+      }
+    }
     if (x.hpF && x.hpF[i] != null && x.hpF[i - 1] != null && x.hpF[i] > x.hpS[i] && x.hpF[i - 1] <= x.hpS[i - 1]) { const entry = b[i].h + 0.01; mk("hp", entry, entry - 2 * a, null); }
     return out;
   }
@@ -293,6 +302,7 @@
     let t0 = Infinity, t1 = -Infinity; sets.forEach(s => { if (s.bars.length) { t0 = Math.min(t0, s.bars[0].t); t1 = Math.max(t1, s.bars[s.bars.length - 1].t); } });
     const split = isFinite(t0) ? new Date(t0 + (t1 - t0) * o.trainShare).toISOString().slice(0, 10) : null;
     const all = []; const bySym = {};
+    sets.forEach(s => { if (!s.x) s.x = prep(s.bars); }); if (sets.some(s => !s.x.rsr)) rsRankSeries(sets);
     for (const s of sets) { if (s.bars.length < 270) continue; const tr = simulate(s.bars, s.x || prep(s.bars), o); tr.forEach(t => { t.sym = s.sym; all.push(t); }); bySym[s.sym] = tr; }
     const rows = SETUPS.map(s => { const tr = all.filter(t => t.id === s.id); return Object.assign({ id: s.id, label: s.label, cite: s.cite }, rSummary(tr), { train: rSummary(tr.filter(t => t.d < split)), test: rSummary(tr.filter(t => t.d >= split)), volUp: rSummary(tr.filter(t => t.volUp === true)), volDown: rSummary(tr.filter(t => t.volUp === false)) }); });
     const srs = rows.map(r => r.sr).filter(v => v != null).concat(o.priorSrs || []);
@@ -635,6 +645,15 @@
 
   /* ---------- Relative strength: the 12-month return skipping the latest month (Jegadeesh and Titman, 1993) ---------- */
   function momentum12_1(b) { const n = b.length; return n >= 253 && b[n - 253].c > 0 ? b[n - 22].c / b[n - 253].c - 1 : null; }
+  /* RS rank for every bar: on each date, each name's 12-month return skipping the last month, ranked 1 to 99 among
+     the names in sets that have that date. Writes x.rsr (array by bar index) so setupsAt and the backtest can use it
+     point in time. sets: [{sym, bars, x}]. */
+  function rsRankSeries(sets) {
+    const byDate = new Map();
+    for (const s of sets) { const b = s.bars; s.x.rsr = new Array(b.length).fill(null); for (let i = 252; i < b.length; i++) { const m = b[i - 21].c / b[i - 252].c - 1; if (!isFinite(m)) continue; if (!byDate.has(b[i].d)) byDate.set(b[i].d, []); byDate.get(b[i].d).push([s, i, m]); } }
+    for (const list of byDate.values()) { if (list.length < 5) continue; list.sort((p, q) => p[2] - q[2]); list.forEach(([s, i], k) => { s.x.rsr[i] = Math.round(1 + 98 * k / (list.length - 1)); }); }
+    return sets;
+  }
   function rsRanks(sets) {
     const vals = sets.map(z => ({ sym: z.sym, m: momentum12_1(z.bars) })).filter(z => z.m != null).sort((a, b) => a.m - b.m), out = {};
     vals.forEach((z, k) => { out[z.sym] = { m: z.m, rank: vals.length > 1 ? Math.round(1 + 98 * k / (vals.length - 1)) : 50 }; });
@@ -752,6 +771,6 @@
       return [{ id: "ema" + n, label: "EMA " + n + " pullback", entry, stop, target: entry + 2 * risk, risk, rr: 2 }];
     };
   }
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn };
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);
