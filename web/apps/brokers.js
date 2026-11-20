@@ -148,13 +148,22 @@
     const esc = D.esc;
     if (w && w.length) sel.insertAdjacentHTML("beforeend", '<optgroup label="Webull watchlists">' + w.map(x => `<option value="wb:${esc(x.watchlist_id)}">${esc(x.name)} (Webull)</option>`).join("") + "</optgroup>");
     if (sc && sc.length) sel.insertAdjacentHTML("beforeend", '<optgroup label="Your Robinhood screeners (run live)">' + sc.map(x => `<option value="scan:${esc(x.id)}">${esc(x.title)} (screener)</option>`).join("") + "</optgroup>");
+    sel.insertAdjacentHTML("beforeend", '<optgroup label="Market (changes daily)"><option value="mkt:1-20">Market: most traded $1–$20</option></optgroup>');
+  }
+  /* "mkt:<lo>-<hi>": the US stocks with the most dollars traded on the latest session, from Webull's top 200 by share
+     volume, priced lo to hi, top 60 by price x volume. Read-only; the list changes every day. */
+  async function marketSymbols(lo, hi, n) {
+    const rows = await wb.ranking("active", "TURNOVER", null, 200);
+    if (!rows) throw new Error("Webull's most-active ranking is not available, so the market list can't be built.");
+    return rows.filter(r => r.price != null && r.price >= lo && r.price <= hi && r.vol > 0).sort((a, b) => b.price * b.vol - a.price * a.vol).slice(0, n || 60).map(r => r.sym);
   }
   async function listSymbols(id) {
+    if (id.startsWith("mkt:")) { const [lo, hi] = id.slice(4).split("-").map(Number); return marketSymbols(lo, hi, 60); }
     if (id.startsWith("wb:")) return wb.listSymbols(id.slice(3));
     if (id.startsWith("scan:")) return rhScanSymbols(id.slice(5));
     const items = await D.call("get_watchlist_items", { list_id: id }, 600000);
     return ((items && items.items) || []).filter(i => i.object_type === "instrument" && i.symbol).map(i => i.symbol);
   }
 
-  Object.assign(D, { wb, rhAnalyst, rhScans, rhScanSymbols, rhIndicator, addListSources, listSymbols });
+  Object.assign(D, { wb, rhAnalyst, rhScans, rhScanSymbols, rhIndicator, addListSources, listSymbols, marketSymbols });
 })();

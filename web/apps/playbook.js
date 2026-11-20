@@ -5,8 +5,9 @@
   "use strict";
   const D = window.Desk, A = window.Analytics, P = window.Playbook, E = D.E;
   const { esc, px, pct, int, money, call } = D;
-  const DEF = { shariahStrict: true, riskPct: 1, lossPct: 3, capPct: 25, costBps: 5, hold: 10, acctOverride: "", minPrice: 5, minDvM: 5, maxSpread: 0.5, maxPrice: 20 };
+  const DEF = { shariahStrict: true, riskPct: 1, lossPct: 3, capPct: 25, costBps: 5, hold: 10, acctOverride: "", minPrice: 1, minDvM: 5, maxSpread: 0.5, maxPrice: 20 };
   let cfg = Object.assign({}, DEF, D.load("pbCfg", {}));
+  if (!cfg.px120) { if (+cfg.minPrice === 5) cfg.minPrice = 1; cfg.px120 = true; D.save("pbCfg", cfg); }   // one-time move of the old $5 default to the $1 to $20 range
   const saveCfg = () => D.save("pbCfg", cfg);
   const TABS = [["today", "Today"], ["scan", "Scanner"], ["movers", "Movers"], ["quality", "Quality"], ["halal", "Halal"], ["size", "Size a trade"], ["manage", "Manage"], ["edge", "My edge"], ["evidence", "Evidence"]];
   let root, tab = D.load("pbTab", "today");
@@ -291,9 +292,11 @@
 
   /* ---------- Scanner ---------- */
   async function drawScan(box) {
-    box.innerHTML = `<div class="tools" style="margin-bottom:12px"><button class="btn small primary" id="pbScanRun" type="button">Scan the list</button><label class="muted" style="font-size:13px">Max price $ <input id="pbMaxPx" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.maxPrice ?? ""))}" placeholder="any" style="width:70px" aria-label="Show only stocks at or under this price; blank for any price"></label><span class="muted" style="font-size:13px" id="pbScanNote"></span></div><div id="pbScanOut"><p class="muted">Scanning…</p></div>`;
+    box.innerHTML = `<div class="tools" style="margin-bottom:12px"><button class="btn small primary" id="pbScanRun" type="button">Scan the list</button><label class="muted" style="font-size:13px">Price $ <input id="pbMinPx2" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.minPrice ?? ""))}" placeholder="0" style="width:60px" aria-label="Skip stocks under this price"></label><label class="muted" style="font-size:13px">to $ <input id="pbMaxPx" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.maxPrice ?? ""))}" placeholder="any" style="width:70px" aria-label="Show only stocks at or under this price; blank for any price"></label><span class="muted" style="font-size:13px" id="pbScanNote"></span></div><div id="pbScanOut"><p class="muted">Scanning…</p></div>`;
     box.querySelector("#pbScanRun").onclick = () => scan(box);
     box.querySelector("#pbMaxPx").onchange = e => { const v = e.target.value.trim(); cfg.maxPrice = v === "" ? "" : Math.max(0, +v); saveCfg(); scan(box); };
+    // the low end is the desk's liquidity floor (also used by Evidence and Movers), so changing it re-tests the setups
+    box.querySelector("#pbMinPx2").onchange = e => { cfg.minPrice = Math.max(0, +e.target.value || 0); saveCfg(); ev = null; scan(box); };
     scan(box);
   }
   let scanHits = [];
