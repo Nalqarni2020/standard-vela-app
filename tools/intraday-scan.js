@@ -2,7 +2,7 @@
    and the 21-day EMA pullback setup (ema21), and grades accumulation on yesterday's completed bar.
    READY = ema21 setup + accumulation grade A + gate "go" or "half".
    usage: node tools/intraday-scan.js config.json
-   config: { today, dailyFiles: [raw Robinhood day-bar files] | dailyParsed: "map.json", fiveFiles: [raw 5-minute files],
+   config: { today, watchlist: [symbols, ema21 rule], market: [symbols, any setup + grade A, $1 to $20], dailyFiles: [raw Robinhood day-bar files] | dailyParsed: "map.json", fiveFiles: [raw 5-minute files],
              vixHistFile, vixNow, stateFile, skip: [symbols to leave out], account } */
 const path = require('path'), fs = require('fs');
 globalThis.Engine = require(path.join(__dirname, '../web/engine.js'));
@@ -25,19 +25,31 @@ const spy = bars.SPY, skip = new Set(['SPY', 'QQQ', ...(cfg.skip || [])]);
 const syms = Object.keys(bars).filter(s => !skip.has(s) && live[s]);
 const sets = syms.filter(s => bars[s].length >= 60).map(s => ({ sym: s, bars: bars[s], x: P.prep(bars[s]) }));
 P.rsRankSeries(sets);
-const ok50 = sets.filter(z => z.x.s50[z.bars.length - 1] != null);
+/* Groups: the watchlist uses the ema21-only rule; the market list ($1 to $20, most traded) uses any setup with grade A.
+   cfg.market: symbols of the market list (optional). Breadth for the gate comes from the watchlist only, as in the daily report. */
+const mkt = new Set(cfg.market || []), watchSyms = new Set(cfg.watchlist ? cfg.watchlist : syms.filter(s => !mkt.has(s)));
+const ok50 = sets.filter(z => watchSyms.has(z.sym) && z.x.s50[z.bars.length - 1] != null);
 const pct50 = ok50.length >= 10 ? ok50.filter(z => z.bars[z.bars.length - 1].c > z.x.s50[z.bars.length - 1]).length / ok50.length : null;
 const g = P.gate(spy, vix, pct50); if (cfg.testGate) g.verdict = cfg.testGate;   // testGate: tests only
-const open = g.verdict === 'go' || g.verdict === 'half', liq = { minPrice: 5, minDollarVol: 5e6 };
+const open = g.verdict === 'go' || g.verdict === 'half';
+const LIQ = { watchlist: { minPrice: 5, minDollarVol: 5e6 }, market: { minPrice: cfg.mktMin ?? 1, minDollarVol: 5e6 } }, mktMax = cfg.mktMax ?? 20;
 const ready = [], watch = [], thin = [];
 for (const z of sets) {
   const b = z.bars, i = b.length - 1; if (b.length < 253) continue;
-  if (!P.liquid(b, z.x, i, liq)) { thin.push(z.sym); continue; }
-  const hit = P.setupsAt(b, z.x, i, liq).find(h => h.id === 'ema21'); if (!hit) continue;
-  const a = P.accumulation(b, i - 1);   // yesterday's completed bar: today's volume is still partial
-  const pl = P.sizePlan({ account: cfg.account || 0, riskPct: 0.01, mult: g.sizeMult, entry: hit.entry, stop: hit.stop, capPct: 0.25 });
-  const row = { sym: z.sym, last: live[z.sym].last, ema21: +z.x.e21[i].toFixed(2), entry: +hit.entry.toFixed(2), stop: +hit.stop.toFixed(2), target: +hit.target.toFixed(2),
-    away: +((hit.entry / live[z.sym].last - 1) * 100).toFixed(1), grade: a && a.grade, score: a && a.score, rs: z.x.rsr ? z.x.rsr[i] : null, shares: pl.shares };
+  const groups = []; if (watchSyms.has(z.sym)) groups.push('watchlist'); if (mkt.has(z.sym) && b[i].c <= mktMax) groups.push('market');
+  let row = null;
+  for (const grp of groups) {
+    const liq = LIQ[grp]; if (!P.liquid(b, z.x, i, liq)) continue;
+    const hits = P.setupsAt(b, z.x, i, liq).filter(h => grp === 'market' || h.id === 'ema21'); if (!hits.length) continue;
+    const a = P.accumulation(b, i - 1);   // yesterday's completed bar: today's volume is still partial
+    if (grp === 'market' && !(a && a.grade === 'A')) continue;   // market list: only grade-A setups are worth a line
+    const h = grp === 'watchlist' ? hits[0] : hits.slice().sort((p, q) => (q.rr || 0) - (p.rr || 0))[0];
+    const pl = P.sizePlan({ account: cfg.account || 0, riskPct: 0.01, mult: g.sizeMult, entry: h.entry, stop: h.stop, capPct: 0.25 });
+    const r = { sym: z.sym, list: grp, setups: hits.map(q => q.id), last: live[z.sym].last, entry: +h.entry.toFixed(2), stop: +h.stop.toFixed(2), target: isFinite(h.target) ? +h.target.toFixed(2) : null,
+      away: +((h.entry / live[z.sym].last - 1) * 100).toFixed(1), grade: a && a.grade, score: a && a.score, rs: z.x.rsr ? z.x.rsr[i] : null, shares: pl.shares };
+    if (!row || (r.grade === 'A' && row.grade !== 'A')) row = r;
+  }
+  if (!row) { if (groups.length && groups.every(grp => !P.liquid(b, z.x, i, LIQ[grp]))) thin.push(z.sym); continue; }
   if (row.grade === 'A' && open) ready.push(row); else watch.push(Object.assign(row, { why: row.grade !== 'A' ? 'grade ' + row.grade : 'gate ' + g.verdict }));
 }
 ready.sort((p, q) => q.score - p.score); watch.sort((p, q) => (q.score || 0) - (p.score || 0));
