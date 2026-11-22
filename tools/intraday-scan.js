@@ -56,7 +56,18 @@ ready.sort((p, q) => q.score - p.score); watch.sort((p, q) => (q.score || 0) - (
 let state = { date: TODAY, alerted: [] };
 try { const s = JSON.parse(fs.readFileSync(cfg.stateFile, 'utf8')); if (s.date === TODAY) state = s; } catch (e) {}
 const fresh = ready.filter(r => !state.alerted.includes(r.sym));
-state.alerted.push(...fresh.map(r => r.sym)); if (cfg.stateFile) fs.writeFileSync(cfg.stateFile, JSON.stringify(state));
+state.alerted.push(...fresh.map(r => r.sym));
+/* Levels watch: cfg.levelsText is the user's pasted day-trading plan. Uses completed 5-minute bars only; any price. */
+const nowMs = cfg.nowMs || Date.now(), alertable = e => (e.k === 'brk' && e.state === 'held') || (e.k.startsWith('pb') && e.state === 'held') || e.k === 'lost' || e.k.startsWith('tgt');
+const levels = P.parseLevels(cfg.levelsText || '').map(lv => {
+  const f = five.find(x => x.symbol === lv.sym);
+  const b = f ? E.parseBars(f.bars.filter(x => !x.interpolated && x.begins_at.slice(0, 10) === TODAY)).filter(x => x.t + 300000 <= nowMs) : [];
+  const st = P.levelState(b, lv); return { sym: lv.sym, brk: lv.brk, last: st.last, events: st.events };
+});
+state.levels = state.levels || [];
+const newLevels = [];
+for (const l of levels) for (const e of l.events.filter(alertable)) { const key = l.sym + '|' + e.k + '|' + e.state; if (!state.levels.includes(key)) { state.levels.push(key); newLevels.push(Object.assign({ sym: l.sym }, e)); } }
+if (cfg.stateFile) fs.writeFileSync(cfg.stateFile, JSON.stringify(state));
 const sb = spy[spy.length - 1], sp = spy[spy.length - 2];
 console.log(JSON.stringify({ today: TODAY, asOf: live.SPY && live.SPY.at, gate: { verdict: g.verdict, score: g.score, sizeMult: +g.sizeMult.toFixed(2) }, vix: cfg.vixNow,
-  spy: { last: sb.c, chg: +((sb.c / sp.c - 1) * 100).toFixed(2) }, ready, newReady: fresh.map(r => r.sym), watch, scanned: sets.length, thin: thin.length }, null, 1));
+  spy: { last: sb.c, chg: +((sb.c / sp.c - 1) * 100).toFixed(2) }, ready, newReady: fresh.map(r => r.sym), watch, levels, newLevels, scanned: sets.length, thin: thin.length }, null, 1));

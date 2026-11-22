@@ -429,4 +429,28 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert(!P.setupsAt(top.bars, P.prep(top.bars), 301).some(z => z.id === 'mom'), 'without an RS rank it never fires');
   ok();
 }
+{ // levels watch: parse a pasted day-trading plan and read 5-minute bars against it
+  const txt = `🌅 SIX PREMARKET WATCHLIST\n\n$MEDS $1.55\nSUPPORT: $1.43 / $1.34 / $1.25\nRESISTANCE: $1.60 / $1.93\nBREAK & HOLD ABOVE: $1.60\nPULLBACK ENTRY 1: $1.43\nPULLBACK ENTRY 2: $1.34\nPULLBACK ENTRY 3: $1.25\nTARGET 1: $1.93\nTARGET 2: $2.00\nEXTENDED TARGET: $2.50+\n\n$MSS  $1.10\nBREAK & HOLD ABOVE: $1.21\nPULLBACK ENTRY 1: $1.05\nTARGET 1: $1.50\nI'll be looking for volume.`;
+  const L = P.parseLevels(txt);
+  assert.deepEqual(L.map(s => s.sym), ['MEDS', 'MSS']);
+  assert.deepEqual(L[0], { sym: 'MEDS', ref: 1.55, brk: 1.6, pb: [1.43, 1.34, 1.25], sup: [1.43, 1.34, 1.25], res: [1.6, 1.93], tgt: [1.93, 2, 2.5] });
+  const bar = (t, o, h, l, c, v) => ({ t, o, h, l, c, v });
+  // light-volume poke above 1.60, then a heavy close above it that holds; the low tagged entry 1 earlier
+  const b1 = [bar(1, 1.5, 1.52, 1.42, 1.5, 100), bar(2, 1.5, 1.62, 1.49, 1.59, 100), bar(3, 1.59, 1.66, 1.58, 1.64, 400), bar(4, 1.64, 1.7, 1.62, 1.68, 150)];
+  const s1 = P.levelState(b1, L[0]);
+  assert.equal(s1.last, 1.68);
+  const brk = s1.events.find(e => e.k === 'brk'); assert.equal(brk.state, 'held'); assert.equal(brk.t, 3); near(brk.vol, 4, 1e-9);
+  assert.equal(s1.events.find(e => e.k === 'pb1').state, 'held');
+  assert(!s1.events.some(e => e.k === 'lost' || e.k.startsWith('tgt')));
+  // break on light volume only, then back under: tested, failed; a later drop under the last support
+  const b2 = [bar(1, 1.5, 1.52, 1.45, 1.5, 100), bar(2, 1.5, 1.63, 1.49, 1.61, 110), bar(3, 1.6, 1.6, 1.2, 1.22, 120)];
+  const s2 = P.levelState(b2, L[0]);
+  assert.equal(s2.events.find(e => e.k === 'brk').state, 'tested, failed');
+  assert.equal(s2.events.find(e => e.k === 'lost').level, 1.25);
+  assert.equal(s2.events.find(e => e.k === 'pb3').state, 'under');
+  // a target reached
+  assert(P.levelState([bar(1, 1.6, 1.95, 1.6, 1.9, 100)], L[0]).events.some(e => e.k === 'tgt1'));
+  assert.deepEqual(P.levelState([], L[0]).events, []);
+  ok();
+}
 console.log('playbook tests passed:', n);

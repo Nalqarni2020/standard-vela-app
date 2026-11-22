@@ -292,12 +292,66 @@
 
   /* ---------- Scanner ---------- */
   async function drawScan(box) {
-    box.innerHTML = `<div class="tools" style="margin-bottom:12px"><button class="btn small primary" id="pbScanRun" type="button">Scan the list</button><label class="muted" style="font-size:13px">Price $ <input id="pbMinPx2" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.minPrice ?? ""))}" placeholder="0" style="width:60px" aria-label="Skip stocks under this price"></label><label class="muted" style="font-size:13px">to $ <input id="pbMaxPx" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.maxPrice ?? ""))}" placeholder="any" style="width:70px" aria-label="Show only stocks at or under this price; blank for any price"></label><span class="muted" style="font-size:13px" id="pbScanNote"></span></div><div id="pbScanOut"><p class="muted">Scanning…</p></div>`;
+    box.innerHTML = `<div id="pbLvBox" style="margin-bottom:18px"></div><div class="tools" style="margin-bottom:12px"><button class="btn small primary" id="pbScanRun" type="button">Scan the list</button><label class="muted" style="font-size:13px">Price $ <input id="pbMinPx2" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.minPrice ?? ""))}" placeholder="0" style="width:60px" aria-label="Skip stocks under this price"></label><label class="muted" style="font-size:13px">to $ <input id="pbMaxPx" type="number" min="0" step="1" inputmode="decimal" value="${esc(String(cfg.maxPrice ?? ""))}" placeholder="any" style="width:70px" aria-label="Show only stocks at or under this price; blank for any price"></label><span class="muted" style="font-size:13px" id="pbScanNote"></span></div><div id="pbScanOut"><p class="muted">Scanning…</p></div>`;
     box.querySelector("#pbScanRun").onclick = () => scan(box);
     box.querySelector("#pbMaxPx").onchange = e => { const v = e.target.value.trim(); cfg.maxPrice = v === "" ? "" : Math.max(0, +v); saveCfg(); scan(box); };
     // the low end is the desk's liquidity floor (also used by Evidence and Movers), so changing it re-tests the setups
     box.querySelector("#pbMinPx2").onchange = e => { cfg.minPrice = Math.max(0, +e.target.value || 0); saveCfg(); ev = null; scan(box); };
+    drawLevels(box.querySelector("#pbLvBox"));
     scan(box);
+  }
+
+  /* ---------- Levels watch: a pasted day-trading plan, checked every minute during the session ----------
+     Alerts on the page (banner, sound, tab title, and a system notification if allowed)
+     when a break holds on volume, a pullback entry holds, a target is reached or the last support is lost. */
+  let lvTimer = null, dayTimer = null;
+  const LVK = { brk: "Break", lost: "Support lost" }, lvName = k => LVK[k] || (k.startsWith("pb") ? "Pullback " + k.slice(2) : "Target " + k.slice(3));
+  const lvAlertable = e => (e.k === "brk" && e.state === "held") || (e.k.startsWith("pb") && e.state === "held") || e.k === "lost" || e.k.startsWith("tgt");
+  function beep() { try { const C = window.AudioContext || window.webkitAudioContext; if (!C) return; const c = new C(), o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(c.destination); o.start(); setTimeout(() => { o.stop(); c.close(); }, 350); } catch (e) {} }
+  // the list lives in your private Playbook database when the page has one (so Claude can load each night's list), else in this browser
+  let lvData = null;
+  const Lv = {
+    async get() { await Plans.init(); if (Plans.db) { try { const s = await Plans.col().doc("levels").get(), ok = s && (typeof s.exists === "function" ? s.exists() : s.exists); if (ok) return s.data(); } catch (e) {} } return D.load("pbLevels", { text: "", date: "" }); },
+    async set(v) { D.save("pbLevels", v); await Plans.init(); if (Plans.db) { try { await Plans.col().doc("levels").set(Object.assign({ kind: "levels" }, v)); } catch (e) {} } },
+  };
+  async function drawLevels(box) {
+    if (!lvData) { box.innerHTML = '<p class="muted">Loading the levels list…</p>'; lvData = await Lv.get().catch(() => ({ text: "", date: "" })); }
+    const saved = lvData, list = P.parseLevels(saved.text);
+    box.innerHTML = `<div class="panel"><div class="ph"><h2>Levels watch</h2><span class="eyebrow">${list.length ? esc(list.length + " stocks · list of " + (saved.date || "—")) : "Paste a day-trading plan"}</span></div>
+      <details class="pb"${list.length ? "" : " open"}><summary class="muted" style="cursor:pointer;font-size:13px">${list.length ? "Change the list" : "Paste the list"}</summary>
+        <textarea id="pbLvText" rows="8" style="width:100%;margin-top:8px;font:13px var(--mono,monospace)" placeholder="$MEDS $1.55&#10;SUPPORT: $1.43 / $1.34 / $1.25&#10;BREAK &amp; HOLD ABOVE: $1.60&#10;PULLBACK ENTRY 1: $1.43&#10;TARGET 1: $1.93">${esc(saved.text)}</textarea>
+        <div class="tools" style="margin-top:8px"><button class="btn small primary" id="pbLvSave" type="button">Save list</button><button class="btn small" id="pbLvClear" type="button">Clear</button></div></details>
+      <div class="tools pb" style="padding-top:0"><label class="muted" style="font-size:13px"><input type="checkbox" id="pbLvAuto"${cfg.lvAuto !== false ? " checked" : ""}> Refresh every minute during the session</label>
+        <button class="btn small" id="pbLvNotify" type="button">${typeof Notification !== "undefined" && Notification.permission === "granted" ? "System alerts on" : "Allow system alerts"}</button>
+        <button class="btn small" id="pbLvNow" type="button">Check now</button><span class="muted" style="font-size:12px" id="pbLvNote"></span></div>
+      <div id="pbLvAlerts"></div><div id="pbLvOut"></div>
+      <div class="pb muted" style="font-size:12px">Break held: a completed 5-minute bar closed above the break level on at least 1.5× the average volume of today's earlier bars, and the price is still above it. Pullback held: traded at or under the entry and back above it now. Support lost: the price is under the lowest support. Only completed 5-minute bars count, so a move shows up to about 6 minutes late; keep Robinhood price alerts for speed. This page alerts only while it is open. Levels come from your list, not from the desk's tested setups.</div></div>`;
+    box.querySelector("#pbLvSave").onclick = async () => { const text = box.querySelector("#pbLvText").value, n = P.parseLevels(text).length; if (!n) { box.querySelector("#pbLvNote").textContent = "No levels found: each stock starts with a line like $MEDS $1.55."; return; } lvData = { text, date: nyNow().date }; await Lv.set(lvData); D.save("pbLvSeen", {}); drawLevels(box); };
+    box.querySelector("#pbLvClear").onclick = async () => { lvData = { text: "", date: "" }; await Lv.set(lvData); drawLevels(box); };
+    box.querySelector("#pbLvAuto").onchange = e => { cfg.lvAuto = e.target.checked; saveCfg(); lvSchedule(box); };
+    box.querySelector("#pbLvNotify").onclick = async e => { try { if (typeof Notification === "undefined") throw 0; const p = await Notification.requestPermission(); e.target.textContent = p === "granted" ? "System alerts on" : "System alerts blocked"; } catch (x) { e.target.textContent = "Not available here"; } };
+    box.querySelector("#pbLvNow").onclick = () => lvRefresh(box);
+    lvRefresh(box); lvSchedule(box);
+  }
+  function lvSchedule(box) { clearInterval(lvTimer); lvTimer = null; if (cfg.lvAuto !== false) lvTimer = setInterval(() => { if (!document.body.contains(box)) { clearInterval(lvTimer); return; } if (sessionNow()) lvRefresh(box); }, 60000); }
+  async function lvRefresh(box) {
+    const out = box.querySelector("#pbLvOut"), note = box.querySelector("#pbLvNote"); if (!out) return;
+    const list = P.parseLevels((lvData || {}).text); if (!list.length) { out.innerHTML = ""; return; }
+    const rows = [];
+    for (const lv of list) { try { rows.push({ lv, st: P.levelState(await bars5Today(lv.sym), lv) }); } catch (e) { rows.push({ lv, err: e.message }); } }
+    const today = nyNow().date, seen = D.load("pbLvSeen", {}), fresh = [];
+    rows.forEach(r => (r.st ? r.st.events : []).filter(lvAlertable).forEach(e => { const key = today + "|" + r.lv.sym + "|" + e.k + "|" + e.state; if (!seen[key]) { seen[key] = 1; fresh.push(`${r.lv.sym} ${lvName(e.k)} ${px(e.level)}: ${e.state}${e.vol ? ` (${e.vol.toFixed(1)}× volume)` : ""}`); } }));
+    if (fresh.length) {
+      D.save("pbLvSeen", seen); beep();
+      const al = box.querySelector("#pbLvAlerts"); al.insertAdjacentHTML("afterbegin", `<div class="banner" style="margin:8px 16px">${esc(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))} · ${fresh.map(esc).join("<br>")}</div>`);
+      const t0 = document.title; document.title = "● " + fresh[0]; setTimeout(() => { document.title = t0.replace(/^● .*/, "") || t0; }, 15000);
+      try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Levels watch", { body: fresh.join("\n") }); } catch (e) {}
+    }
+    const cell = (r, pre) => { const es = (r.st ? r.st.events : []).filter(e => e.k.startsWith(pre)); return es.length ? es.map(e => `<span class="pill ${lvAlertable(e) ? (e.k === "lost" ? "fail" : "pass") : ""}">${esc(lvName(e.k) + " " + px(e.level) + ": " + e.state)}</span>`).join(" ") : '<span class="muted">—</span>'; };
+    out.innerHTML = `<div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Last</th><th>Break level</th><th>Break</th><th>Pullbacks</th><th>Targets</th><th>Support</th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="clickable" tabindex="0" data-sym="${esc(r.lv.sym)}"><td><b>${esc(r.lv.sym)}</b></td><td>${r.st && r.st.last != null ? px(r.st.last) : '<span class="muted">' + esc(r.err ? "error" : "no bars yet") + "</span>"}</td><td>${px(r.lv.brk)}</td><td>${cell(r, "brk")}</td><td>${cell(r, "pb")}</td><td>${cell(r, "tgt")}</td><td>${cell(r, "lost")}</td></tr>`).join("")}
+      </tbody></table></div>`;
+    if (note) note.textContent = (sessionNow() ? "Checked " : "Market closed · last checked ") + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
   let scanHits = [];
   // Scanner price cap: hide names whose last close is above it (blank = any price). Backtests and Evidence still use every name.
@@ -350,6 +404,8 @@
       btn.disabled = false;
       logSignals(hits).then(nn => { const el = box.querySelector("#pbScanNote"); if (el && nn != null) el.textContent = nn ? `${nn} new signal${nn === 1 ? "" : "s"} saved to the forward record` : "Signals already in the forward record"; }).catch(() => {});
       dayScan(out.querySelector("#pbDayBox"), st.map(s => s.sym));
+      // Day setups re-read live bars every 2 minutes during the session while the Scanner is open
+      clearInterval(dayTimer); { const dbox = out.querySelector("#pbDayBox"), syms0 = st.map(s => s.sym); dayTimer = setInterval(() => { if (!document.body.contains(dbox)) { clearInterval(dayTimer); return; } if (sessionNow()) dayScan(dbox, syms0); }, 120000); }
     } catch (e) { fail(out, e); btn.disabled = false; }
   }
   async function bars5Today(sym) {

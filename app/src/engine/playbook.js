@@ -771,6 +771,48 @@
       return [{ id: "ema" + n, label: "EMA " + n + " pullback", entry, stop, target: entry + 2 * risk, risk, rr: 2 }];
     };
   }
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries };
+  /* ---------- Levels watch (a day-trading plan pasted as text) ----------
+     parseLevels reads lists written like "$MEDS $1.55 / SUPPORT: $1.43 / $1.34 / BREAK & HOLD ABOVE: $1.60 /
+     PULLBACK ENTRY 1: $1.43 / TARGET 1: $1.93 / EXTENDED TARGET: $2.50+". Returns [{sym, ref, brk, pb[], sup[], res[], tgt[]}]. */
+  function parseLevels(text) {
+    const out = []; let cur = null;
+    const nums = s => (String(s).match(/\d*\.?\d+/g) || []).map(Number).filter(v => isFinite(v) && v > 0);
+    for (const raw of String(text || "").split(/\r?\n/)) {
+      const line = raw.trim(); if (!line) continue;
+      const head = line.match(/^\$([A-Z][A-Z0-9.]{0,9})\b\s*(.*)$/);
+      if (head) { cur = { sym: head[1], ref: nums(head[2])[0] ?? null, brk: null, pb: [], sup: [], res: [], tgt: [] }; out.push(cur); continue; }
+      if (!cur) continue;
+      const m = line.match(/^([A-Za-z &]+?)\s*\d*\s*:\s*(.*)$/); if (!m) continue;
+      const key = m[1].toUpperCase(), v = nums(m[2]); if (!v.length) continue;
+      if (/BREAK/.test(key)) cur.brk = v[0];
+      else if (/PULLBACK/.test(key)) cur.pb.push(v[0]);
+      else if (/SUPPORT/.test(key)) cur.sup.push(...v);
+      else if (/RESIST/.test(key)) cur.res.push(...v);
+      else if (/TARGET/.test(key)) cur.tgt.push(v[0]);
+    }
+    return out.filter(s => s.brk != null || s.pb.length || s.tgt.length);
+  }
+  /* levelState: where today's 5-minute bars stand against one stock's levels. Only completed bars count.
+     brk "held": a bar closed above the break level on at least volMult x the average volume of today's earlier bars,
+     and the last price is still above it; "tested": traded above it but not held. pb[k] "held": traded at or under the
+     entry and the last price is back above it. lost: the last price is under the lowest support. tgt[k]: high reached it. */
+  function levelState(bars5, lv, o) {
+    o = Object.assign({ volMult: 1.5 }, o || {});
+    const b = (bars5 || []).filter(x => x && isFinite(x.c)); if (!b.length) return { last: null, events: [] };
+    const last = b[b.length - 1].c, hi = Math.max(...b.map(x => x.h)), lo = Math.min(...b.map(x => x.l)), ev = [];
+    if (lv.brk != null) {
+      let held = null;
+      for (let i = 0; i < b.length; i++) { const prev = b.slice(0, i), av = prev.length ? prev.reduce((s, x) => s + x.v, 0) / prev.length : null;
+        if (b[i].c > lv.brk && (av == null || b[i].v >= o.volMult * av)) { held = { t: b[i].t, vol: av ? b[i].v / av : null }; break; } }
+      if (held && last > lv.brk) ev.push({ k: "brk", state: "held", level: lv.brk, t: held.t, vol: held.vol });
+      else if (hi > lv.brk) ev.push({ k: "brk", state: last > lv.brk ? "above, volume light" : "tested, failed", level: lv.brk });
+    }
+    (lv.pb || []).forEach((p, k) => { if (lo <= p) ev.push({ k: "pb" + (k + 1), state: last > p ? "held" : "under", level: p }); });
+    const floor = (lv.sup || []).length ? Math.min(...lv.sup) : (lv.pb || []).length ? Math.min(...lv.pb) : null;
+    if (floor != null && last < floor) ev.push({ k: "lost", state: "under the last support", level: floor });
+    (lv.tgt || []).forEach((t, k) => { if (hi >= t) ev.push({ k: "tgt" + (k + 1), state: "reached", level: t }); });
+    return { last, hi, lo, events: ev };
+  }
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries, parseLevels, levelState };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);
