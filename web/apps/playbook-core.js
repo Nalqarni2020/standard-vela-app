@@ -813,6 +813,61 @@
     (lv.tgt || []).forEach((t, k) => { if (hi >= t) ev.push({ k: "tgt" + (k + 1), state: "reached", level: t }); });
     return { last, hi, lo, events: ev };
   }
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries, parseLevels, levelState };
+  /* ---------- Day-trade guard (FINRA pattern day trader rule) ----------
+     orders: [{symbol, side:"buy"|"sell", qty, t (ms)}] for ONE margin account. A day trade = shares bought and sold on the
+     same New York day (buys then sells = one day trade however many orders; each later re-buy and sell that day = another).
+     The window is the last 5 weekdays including today (market holidays are not skipped: a holiday in the window makes
+     this count a little stricter than the broker's). A 4th day trade in 5 business days on a margin account worth under
+     $25,000 marks it a pattern day trader. */
+  function dayTradeGuard(orders, nowMs, o) {
+    o = Object.assign({ equity: null, type: "margin", limit: 3, minEquity: 25000 }, o || {});
+    const nyDate = t => En().ny(t).date;
+    const addWeekdays = (ds, n) => { let d = new Date(ds + "T12:00:00Z"); while (n > 0) { d = new Date(d.getTime() + 864e5); const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) n--; } return d.toISOString().slice(0, 10); };
+    const days = []; for (let d = new Date(nyDate(nowMs) + "T12:00:00Z"); days.length < 5; d = new Date(d.getTime() - 864e5)) { const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) days.push(d.toISOString().slice(0, 10)); }
+    const inWin = new Set(days), trades = [], book = {};
+    (orders || []).filter(x => x && x.symbol && x.qty > 0 && isFinite(x.t)).sort((a, b) => a.t - b.t).forEach(x => {
+      // buys then sells = one day trade however many orders; a new buy after that sale starts the next one
+      const d = nyDate(x.t), k = x.symbol + "|" + d, b = book[k] = book[k] || { open: 0, armed: false };
+      if (x.side === "buy") { b.open += x.qty; b.armed = true; }
+      else if (x.side === "sell" && b.open > 0) { b.open = Math.max(0, b.open - x.qty); if (b.armed) { b.armed = false; if (inWin.has(d)) trades.push({ d, sym: x.symbol, t: x.t }); } }
+    });
+    const count = trades.length, exempt = o.type !== "margin" || (o.equity != null && o.equity >= o.minEquity);
+    const first = trades.length ? trades.map(z => z.d).sort()[0] : null;
+    const state = exempt ? "exempt" : count > o.limit ? "flagged" : count === o.limit ? "last" : count === o.limit - 1 ? "careful" : "ok";
+    return { count, left: exempt ? null : Math.max(0, o.limit - count), state, trades, window: { from: days[4], to: days[0] },
+      dropOn: first ? addWeekdays(first, 5) : null, dropCount: first ? trades.filter(z => z.d === first).length : 0, exempt, type: o.type, equity: o.equity };
+  }
+  /* ---------- Small-cap risk: dilution, exchange status, float ----------
+     fund: Robinhood fundamentals row (+ last: the latest price); filings: [{form_type, date_filed}]; splits: [{d, ratio}] (ratio > 1 = reverse split,
+     e.g. 10 = 1-for-10); nowMs. Returns {level: "high"|"watch"|"low", flags: [{k, text, date?}]}. */
+  function smallCapRisk(fund, filings, splits, nowMs) {
+    const flags = [], day = 864e5, f = fund || {}, ago = d => (nowMs - Date.parse(d + "T12:00:00Z")) / day;
+    const fl = (filings || []).filter(x => x && x.form_type && x.date_filed);
+    const offer = fl.filter(x => /^(424B\d*|S-1|S-3|F-1|F-3)(\/A)?$/.test(x.form_type) && ago(x.date_filed) <= 90).sort((a, b) => b.date_filed.localeCompare(a.date_filed));
+    if (offer.length) flags.push({ k: "offering", high: offer.some(x => /^424B/.test(x.form_type) && ago(x.date_filed) <= 30), text: `${offer.length} offering or shelf filing${offer.length === 1 ? "" : "s"} in 90 days (latest ${offer[0].form_type}, ${offer[0].date_filed})`, date: offer[0].date_filed });
+    const holder = fl.filter(x => /^(PRE|DEF) 14[AC]$/.test(x.form_type) && ago(x.date_filed) <= 120).sort((a, b) => b.date_filed.localeCompare(a.date_filed));
+    if (holder.length) flags.push({ k: "vote", high: false, text: `Shareholder action filed ${holder[0].date_filed} (${holder[0].form_type}): often a reverse split or more authorized shares`, date: holder[0].date_filed });
+    const desc = (f.financial_status_description || "").trim();
+    if (desc) flags.push({ k: "exchange", high: true, text: `Exchange status: ${desc}` });   // codes alone vary by exchange (CC0, CA0 are normal): only a stated problem counts
+    const rs = (splits || []).filter(s => s.ratio > 1 && ago(s.d) <= 365);
+    if (rs.length) flags.push({ k: "rsplit", high: true, text: `Reverse split${rs.length > 1 ? "s" : ""} in the last year: ${rs.map(s => "1-for-" + Math.round(s.ratio) + " on " + s.d).join(", ")}` });
+    const flt = +f.float, cap = +f.market_cap;
+    if (flt > 0 && flt < 10e6) flags.push({ k: "float", high: false, text: `Small float: ${(flt / 1e6).toFixed(1)}M shares (big swings on little buying or selling)` });
+    if (cap > 0 && cap < 50e6) flags.push({ k: "micro", high: false, text: `Micro-cap: worth $${(cap / 1e6).toFixed(1)}M in total` });
+    const hi = +f.high_52_weeks, px = +f.last || +f.open;
+    if (hi > 0 && px > 0 && px / hi < 0.2) flags.push({ k: "crash", high: false, text: `${Math.round((1 - px / hi) * 100)}% under its 52-week high` });
+    const level = flags.some(x => x.high) ? "high" : flags.length ? "watch" : "low";
+    return { level, flags };
+  }
+  /* Splits from two price histories of the same dates: raw closes and split-adjusted closes. Where their ratio jumps, a
+     split took effect. Returns [{d, ratio}] (ratio > 1 = reverse split). */
+  function splitsFrom(raw, adj) {
+    // raw / adjusted = the share-count factor still to come; it steps up by the split ratio on the day a reverse split takes effect
+    const A = {}; (adj || []).forEach(b => { A[b.d] = b.c; });
+    const pts = (raw || []).filter(b => A[b.d] > 0 && b.c > 0).map(b => ({ d: b.d, r: b.c / A[b.d] })), out = [];
+    for (let i = 1; i < pts.length; i++) { const j = pts[i].r / pts[i - 1].r; if (j > 1.5 || j < 1 / 1.5) out.push({ d: pts[i].d, ratio: +j.toFixed(2) }); }
+    return out;
+  }
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries, parseLevels, levelState, dayTradeGuard, smallCapRisk, splitsFrom };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);

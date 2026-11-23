@@ -453,4 +453,43 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert.deepEqual(P.levelState([], L[0]).events, []);
   ok();
 }
+{ // day-trade guard: same-day buy then sell = one day trade; last 5 weekdays; margin under $25k
+  const ny = (d, hm) => Date.parse(d + 'T' + hm + ':00-05:00');
+  const now = ny('2026-11-24', '15:00');   // Tuesday; window = Nov 18 (Wed) to Nov 24
+  const o = [
+    { symbol: 'MEDS', side: 'buy', qty: 100, t: ny('2026-11-24', '09:40') }, { symbol: 'MEDS', side: 'buy', qty: 50, t: ny('2026-11-24', '09:50') },
+    { symbol: 'MEDS', side: 'sell', qty: 150, t: ny('2026-11-24', '10:30') },                       // 1 (two buys, one sell)
+    { symbol: 'AKAN', side: 'buy', qty: 10, t: ny('2026-11-23', '10:00') }, { symbol: 'AKAN', side: 'sell', qty: 5, t: ny('2026-11-23', '11:00') },
+    { symbol: 'AKAN', side: 'sell', qty: 5, t: ny('2026-11-23', '12:00') },                         // 1 (second sell closes nothing new)
+    { symbol: 'RAYA', side: 'buy', qty: 10, t: ny('2026-11-18', '10:00') }, { symbol: 'RAYA', side: 'sell', qty: 10, t: ny('2026-11-18', '10:30') }, // 1, oldest day
+    { symbol: 'KO', side: 'buy', qty: 1, t: ny('2026-11-17', '10:00') }, { symbol: 'KO', side: 'sell', qty: 1, t: ny('2026-11-17', '15:00') },   // outside the window
+    { symbol: 'IREN', side: 'buy', qty: 5, t: ny('2026-11-20', '10:00') }, { symbol: 'IREN', side: 'sell', qty: 5, t: ny('2026-11-23', '10:00') }, // overnight: not a day trade
+  ];
+  const g = P.dayTradeGuard(o, now, { equity: 670, type: 'margin' });
+  assert.equal(g.count, 3); assert.equal(g.state, 'last'); assert.equal(g.left, 0);
+  assert.deepEqual(g.window, { from: '2026-11-18', to: '2026-11-24' });
+  assert.equal(g.dropOn, '2026-11-25'); assert.equal(g.dropCount, 1);
+  assert.equal(P.dayTradeGuard(o, now, { equity: 30000 }).state, 'exempt');
+  assert.equal(P.dayTradeGuard(o, now, { type: 'cash' }).state, 'exempt');
+  assert.equal(P.dayTradeGuard(o.slice(0, 3), now, { equity: 670 }).state, 'ok');
+  ok();
+}
+{ // small-cap risk flags and split detection
+  const now = Date.parse('2026-11-22T12:00:00Z');
+  const fund = { float: '2880337', market_cap: '7576193', high_52_weeks: '33.125', last: 1.55, financial_status_indicator: 'CC0', financial_status_description: '' };
+  const filings = [{ form_type: '424B5', date_filed: '2026-11-17' }, { form_type: '424B5', date_filed: '2026-11-16' }, { form_type: 'PRE 14C', date_filed: '2026-11-16' }, { form_type: 'S-1/A', date_filed: '2026-11-10' }, { form_type: '10-Q', date_filed: '2026-11-13' }, { form_type: 'S-1', date_filed: '2026-01-07' }];
+  const r = P.smallCapRisk(fund, filings, [], now);
+  assert.equal(r.level, 'high');
+  assert.deepEqual(r.flags.map(f => f.k), ['offering', 'vote', 'float', 'micro', 'crash']);
+  assert(/3 offering or shelf filings/.test(r.flags[0].text), r.flags[0].text);
+  const ak = P.smallCapRisk({ financial_status_indicator: 'CC4', financial_status_description: 'Noncompliant', market_cap: '11058709', float: '2388212' }, [], [{ d: '2026-06-01', ratio: 20 }], now);
+  assert.deepEqual(ak.flags.filter(f => f.high).map(f => f.k), ['exchange', 'rsplit']);
+  assert.equal(P.smallCapRisk({ market_cap: '5e10', float: '1e9', financial_status_indicator: 'CC0' }, [], [], now).level, 'low');
+  // a 1-for-10 reverse split on Jun 2: adjusted closes before it are 10x the raw ones
+  const raw = [{ d: '2026-05-29', c: 0.3 }, { d: '2026-06-01', c: 0.28 }, { d: '2026-06-02', c: 2.9 }, { d: '2026-06-03', c: 3.0 }];
+  const adj = [{ d: '2026-05-29', c: 3.0 }, { d: '2026-06-01', c: 2.8 }, { d: '2026-06-02', c: 2.9 }, { d: '2026-06-03', c: 3.0 }];
+  assert.deepEqual(P.splitsFrom(raw, adj), [{ d: '2026-06-02', ratio: 10 }]);
+  assert.deepEqual(P.splitsFrom(adj, adj), []);
+  ok();
+}
 console.log('playbook tests passed:', n);

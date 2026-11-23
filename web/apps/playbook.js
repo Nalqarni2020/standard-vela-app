@@ -207,6 +207,7 @@
   async function drawToday(box) {
     box.innerHTML = `
       <div id="pbGate"><p class="muted">Reading the market…</p></div>
+      <div id="pbPdt" style="margin-top:18px"></div>
       <div id="pbBottom" style="margin-top:18px"></div>
       <div class="grid2" style="margin-top:18px">
         <div class="panel"><div class="ph"><h2>Your limits</h2><span class="eyebrow">Kept on this device</span></div>
@@ -228,6 +229,7 @@
     bind("pbRisk", "riskPct"); bind("pbLoss", "lossPct"); bind("pbCap", "capPct"); bind("pbCost", "costBps"); bind("pbAcct", "acctOverride"); box.querySelector("#pbFrom").value = cfg.sizeFrom || "rh"; box.querySelector("#pbFrom").onchange = e => { cfg.sizeFrom = e.target.value; saveCfg(); drawn = { today: true }; renderAcct(box); }; bind("pbMinPx", "minPrice"); bind("pbMinDv", "minDvM"); bind("pbSpread", "maxSpread");
     try { await account(); await webull(); today = await todayStats().catch(() => null); } catch (e) { box.querySelector("#pbAcctBox").innerHTML = '<div class="banner bad">' + esc(e.message) + "</div>"; }
     renderAcct(box);
+    drawPdt(box.querySelector("#pbPdt"));
     try { await ensureGate(t => { const g = box.querySelector("#pbGate"); if (g) busy(g, t); }); renderGate(box); renderBottom(box); } catch (e) { fail(box.querySelector("#pbGate"), e); }
   }
   function renderAcct(box) {
@@ -301,6 +303,66 @@
     scan(box);
   }
 
+  /* ---------- Day-trade guard: same-day round trips per margin account, last 5 weekdays ---------- */
+  let pdtP = null, pdtAt = 0;
+  async function pdtData() {
+    if (pdtP && Date.now() - pdtAt < 120000) return pdtP;
+    pdtAt = Date.now();
+    return (pdtP = (async () => {
+      const now = Date.now(), since = new Date(now - 10 * 864e5).toISOString().slice(0, 10), out = [];
+      const d = await call("get_accounts", {}, 600000);
+      const list = ((d && d.accounts) || []).filter(a => a.state === "active" && !a.deactivated);
+      for (const a of list) {
+        let raw = [], cursor = null, pages = 0;
+        do { const r = await call("get_equity_orders", Object.assign({ account_number: a.account_number, state: "filled", created_at_gte: since }, cursor ? { cursor } : {}), 60000); raw = raw.concat((r && r.orders) || []); cursor = r && r.next ? r.next : null; pages++; } while (cursor && pages < 10);
+        const orders = raw.filter(o => o.symbol && +o.cumulative_quantity > 0).map(o => { const ex = (o.executions || []).map(x => Date.parse(x.timestamp)).filter(isFinite); return { symbol: o.symbol, side: o.side, qty: +o.cumulative_quantity, t: ex.length ? Math.max(...ex) : Date.parse(o.last_transaction_at || o.created_at) }; });
+        const pf = await call("get_portfolio", { account_number: a.account_number }, 60000).catch(() => null);
+        const eq = pf ? +pf.total_value || null : null;
+        out.push(Object.assign(P.dayTradeGuard(orders, now, { equity: eq, type: a.type === "margin" ? "margin" : "cash" }), { broker: "Robinhood", name: (a.nickname || (a.is_default ? "main" : a.brokerage_account_type || "account")) + " " + mask(a.account_number) }));
+      }
+      await webull();
+      if (wbAcct) { const wo = await D.wb.orders(wbAcct.account_id, now - 10 * 864e5).catch(() => []);
+        out.push(Object.assign(P.dayTradeGuard(wo, now, { equity: wbBal ? wbBal.value : null, type: /MARGIN/i.test(wbAcct.account_type || wbAcct.account_class || "") ? "margin" : "cash" }), { broker: "Webull", name: (wbAcct.account_label || "account") + " " + mask(wbAcct.account_number || wbAcct.account_id) })); }
+      return out;
+    })());
+  }
+  const PDTS = { ok: ["", "Room to day trade"], careful: ["", "1 day trade left"], last: ["fail", "No day trades left: the next one marks this account a pattern day trader"], flagged: ["fail", "Over the limit: check the account with the broker"], exempt: ["pass", "No count: cash account or worth $25,000+"] };
+  async function drawPdt(el) {
+    if (!el) return;
+    const head = '<div class="panel"><div class="ph"><h2>Day-trade guard</h2><span class="eyebrow">Last 5 trading days</span></div>';
+    el.innerHTML = head + '<div class="pb muted">Counting day trades…</div></div>';
+    try {
+      const rows = await pdtData();
+      el.innerHTML = head + `<div class="scroll"><table class="dt"><thead><tr><th>Broker</th><th>Account</th><th>Type</th><th>Value</th><th>Day trades</th><th>Left</th><th>Status</th><th>Count drops</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(r.broker)}</td><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td>${r.equity != null ? money(r.equity) : "—"}</td><td>${r.count}${r.trades.length ? ` <span class="muted" title="${esc(r.trades.map(z => z.d + " " + z.sym).join(", "))}">(${esc(r.trades.map(z => z.sym).join(", "))})</span>` : ""}</td><td>${r.left == null ? "—" : r.left}</td><td><span class="pill ${PDTS[r.state][0]}">${esc(PDTS[r.state][1])}</span></td><td>${r.dropOn && !r.exempt ? esc(r.dropOn.slice(5) + " (−" + r.dropCount + ")") : "—"}</td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="pb muted" style="font-size:12px">A day trade is buying and selling the same stock on the same day in a margin account (buys then sells count once; a new buy and sell later that day counts again). Four or more in five business days on a margin account worth under $25,000 marks it a pattern day trader, and the broker can then limit buying for 90 days. Each broker counts separately. Market holidays are not skipped here, so this count can run a little stricter than the broker's. Cash accounts have no count, but money from a sale settles the next business day: buying with it and selling again before it settles is a good-faith violation.</div></div>`;
+    } catch (e) { el.innerHTML = head + '<div class="pb"><div class="banner bad">' + esc(e.message) + "</div></div></div>"; }
+  }
+
+  /* ---------- Small-cap risk: offerings, exchange status, reverse splits, float (Robinhood data) ---------- */
+  const riskCache = {};
+  async function riskFor(syms) {
+    const need = [...new Set(syms)].filter(s => !riskCache[s]); if (!need.length) return riskCache;
+    const fund = {}, now = Date.now();
+    for (let i = 0; i < need.length; i += 20) { const f = await call("get_equity_fundamentals", { symbols: need.slice(i, i + 20) }, 6 * 3600000).catch(() => null); ((f && f.results) || []).forEach(x => { fund[x.symbol] = x; }); }
+    const q = await D.quotes(need).catch(() => ({}));
+    const since = new Date(now - 130 * 864e5).toISOString().slice(0, 10), y1 = new Date(now - 380 * 864e5).toISOString().slice(0, 10);
+    for (let i = 0; i < need.length; i += 3) await Promise.all(need.slice(i, i + 3).map(async s => {
+      const f = fund[s]; if (!f) { riskCache[s] = null; return; }
+      f.last = q[s] && q[s].last;
+      const cap = +f.market_cap;
+      if (cap >= 2e9) { riskCache[s] = P.smallCapRisk(f, [], [], now); return; }   // large companies: exchange status and size only
+      const fl = await call("get_sec_filing_index", { symbol: s, since }, 6 * 3600000).catch(() => null);
+      let splits = [];
+      if (cap < 3e8) { try { const [a, r] = await Promise.all(["split", "none"].map(adj => call("get_equity_historicals", { symbols: [s], start_time: y1, interval: "day", bounds: "regular", adjustment_type: adj }, 6 * 3600000)));
+        const pick = d => E.parseBars((((d && d.results) || []).find(x => x.symbol === s) || {}).bars || []); splits = P.splitsFrom(pick(r), pick(a)); } catch (e) {} }
+      riskCache[s] = P.smallCapRisk(f, (fl && fl.filings) || [], splits, now);
+    }));
+    return riskCache;
+  }
+  const riskPill = r => !r || r.level === "low" ? "" : `<span class="pill ${r.level === "high" ? "fail" : ""}" title="${esc(r.flags.map(f => f.text).join(". "))}">${r.level === "high" ? "Dilution risk" : "Small-cap risk"}</span>`;
+
   /* ---------- Levels watch: a pasted day-trading plan, checked every minute during the session ----------
      Alerts on the page (banner, sound, tab title, and a system notification if allowed)
      when a break holds on volume, a pullback entry holds, a target is reached or the last support is lost. */
@@ -339,6 +401,7 @@
     const list = P.parseLevels((lvData || {}).text); if (!list.length) { out.innerHTML = ""; return; }
     const rows = [];
     for (const lv of list) { try { rows.push({ lv, st: P.levelState(await bars5Today(lv.sym), lv) }); } catch (e) { rows.push({ lv, err: e.message }); } }
+    const rk = await riskFor(list.map(l => l.sym)).catch(() => ({})), pdt = await pdtData().catch(() => []);
     const today = nyNow().date, seen = D.load("pbLvSeen", {}), fresh = [];
     rows.forEach(r => (r.st ? r.st.events : []).filter(lvAlertable).forEach(e => { const key = today + "|" + r.lv.sym + "|" + e.k + "|" + e.state; if (!seen[key]) { seen[key] = 1; fresh.push(`${r.lv.sym} ${lvName(e.k)} ${px(e.level)}: ${e.state}${e.vol ? ` (${e.vol.toFixed(1)}× volume)` : ""}`); } }));
     if (fresh.length) {
@@ -348,9 +411,10 @@
       try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Levels watch", { body: fresh.join("\n") }); } catch (e) {}
     }
     const cell = (r, pre) => { const es = (r.st ? r.st.events : []).filter(e => e.k.startsWith(pre)); return es.length ? es.map(e => `<span class="pill ${lvAlertable(e) ? (e.k === "lost" ? "fail" : "pass") : ""}">${esc(lvName(e.k) + " " + px(e.level) + ": " + e.state)}</span>`).join(" ") : '<span class="muted">—</span>'; };
-    out.innerHTML = `<div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Last</th><th>Break level</th><th>Break</th><th>Pullbacks</th><th>Targets</th><th>Support</th></tr></thead><tbody>
-      ${rows.map(r => `<tr class="clickable" tabindex="0" data-sym="${esc(r.lv.sym)}"><td><b>${esc(r.lv.sym)}</b></td><td>${r.st && r.st.last != null ? px(r.st.last) : '<span class="muted">' + esc(r.err ? "error" : "no bars yet") + "</span>"}</td><td>${px(r.lv.brk)}</td><td>${cell(r, "brk")}</td><td>${cell(r, "pb")}</td><td>${cell(r, "tgt")}</td><td>${cell(r, "lost")}</td></tr>`).join("")}
-      </tbody></table></div>`;
+    out.innerHTML = `<div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Last</th><th>Break level</th><th>Break</th><th>Pullbacks</th><th>Targets</th><th>Support</th><th>Company risk</th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="clickable" tabindex="0" data-sym="${esc(r.lv.sym)}"><td><b>${esc(r.lv.sym)}</b></td><td>${r.st && r.st.last != null ? px(r.st.last) : '<span class="muted">' + esc(r.err ? "error" : "no bars yet") + "</span>"}</td><td>${px(r.lv.brk)}</td><td>${cell(r, "brk")}</td><td>${cell(r, "pb")}</td><td>${cell(r, "tgt")}</td><td>${cell(r, "lost")}</td><td>${rk[r.lv.sym] ? (riskPill(rk[r.lv.sym]) || '<span class="muted">none found</span>') + rk[r.lv.sym].flags.map(f => `<div class="muted" style="font-size:12px">${esc(f.text)}</div>`).join("") : '<span class="muted">—</span>'}</td></tr>`).join("")}
+      </tbody></table></div>
+      ${pdt.filter(g => !g.exempt).length ? `<div class="pb" style="font-size:13px"><b>Day trades left:</b> ${pdt.filter(g => !g.exempt).map(g => `${esc(g.broker)} ${esc(g.name)}: <span class="${g.left === 0 ? "chg down" : ""}">${g.left}</span>`).join(" · ")} <span class="muted">(margin accounts under $25,000; see Today for details)</span></div>` : ""}`;
     if (note) note.textContent = (sessionNow() ? "Checked " : "Market closed · last checked ") + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
   let scanHits = [];
@@ -379,6 +443,9 @@
       const hs = [...new Set(hits.map(x => x.sym))].slice(0, 30), reps = {}; await Promise.all(hs.map(async sy => { reps[sy] = await nextRep(sy); }));
       const qs = sessionNow() && hs.length ? await D.quotes(hs).catch(() => ({})) : {};
       const an = await D.rhAnalyst(hs).catch(() => ({}));
+      busy(out, "Checking small-cap risk: offerings, exchange status, reverse splits…");
+      const cheap = [...new Set(hits.filter(x => x.last <= 20).map(x => x.sym))].slice(0, 20), rk = cheap.length ? await riskFor(cheap).catch(() => ({})) : {};
+      hits.forEach(x => { x.risk = rk[x.sym] || null; });
       busy(out, "Checking insider buying and recent sales…");
       const rs = P.rsRanks(stAll), ins = {}, sales = await recentSales().catch(() => []);
       for (let i = 0; i < hs.length; i += 4) await Promise.all(hs.slice(i, i + 4).map(async sy => { const t = await D.wb.insiders(sy).catch(() => null); ins[sy] = t ? P.insiderClusters(t) : null; }));
@@ -391,10 +458,10 @@
       let h = `<p class="verdict-line" style="font-size:18px"><span class="pill ${gcls}" style="vertical-align:middle">${esc(gname)}</span> ${esc(`${hits.length} swing setup${hits.length === 1 ? "" : "s"} on ${st.length} names${cap ? ` at or under $${cap} (${overCap} above it hidden)` : ""}, from closes to ${st[0] ? st[0].bars[st[0].bars.length - 1].d : "—"}. ` + (locked() ? "Sizes are zero: the daily loss limit is reached." : `Sizes use ${mult().toFixed(2)}× of your ${cfg.riskPct}% risk.`))}</p>`;
       h += `<div class="panel"><div class="ph"><h2>Swing setups</h2><span class="eyebrow">Buy-stop orders for the next session</span></div>
         <div class="scroll"><table class="dt"><thead><tr><th>Symbol</th><th>Setup</th><th>Last close</th><th>Buy above</th><th>Stop</th><th>Target</th><th>Reward : risk</th><th>Shares</th><th>Risk</th><th>Setup on the list</th><th>On this name</th><th>Volume trend</th><th>RS rank</th><th>Accum.</th><th>Insiders</th><th>Earnings</th><th>Analysts</th><th></th></tr></thead><tbody>
-        ${hits.length ? hits.map(x => `<tr class="clickable" tabindex="0" data-sym="${esc(x.sym)}"><td><b>${esc(x.sym)}</b>${x.halal ? " " + halalPill(x.halal) : ""}</td><td>${esc(P.SETUPS.find(s => s.id === x.id).short)}</td><td>${px(x.last)}</td><td>${px(x.entry)}</td><td>${px(x.stop)} <span class="muted">${(x.risk / x.atr).toFixed(1)} ATR</span></td><td>${x.trend ? '<span class="muted">Trend exit</span>' : px(x.target)}</td><td>${x.rr == null ? '<span class="muted">open</span>' : x.rr.toFixed(1)}</td><td>${sharesCell(x.plan)}</td><td>${x.plan.shares ? money(x.plan.riskDollars) : "—"}</td>
+        ${hits.length ? hits.map(x => `<tr class="clickable" tabindex="0" data-sym="${esc(x.sym)}"><td><b>${esc(x.sym)}</b>${x.halal ? " " + halalPill(x.halal) : ""}${x.risk && x.risk.level !== "low" ? " " + riskPill(x.risk) : ""}</td><td>${esc(P.SETUPS.find(s => s.id === x.id).short)}</td><td>${px(x.last)}</td><td>${px(x.entry)}</td><td>${px(x.stop)} <span class="muted">${(x.risk / x.atr).toFixed(1)} ATR</span></td><td>${x.trend ? '<span class="muted">Trend exit</span>' : px(x.target)}</td><td>${x.rr == null ? '<span class="muted">open</span>' : x.rr.toFixed(1)}</td><td>${sharesCell(x.plan)}</td><td>${x.plan.shares ? money(x.plan.riskDollars) : "—"}</td>
           <td>${x.list && x.list.n ? `<span class="chg ${x.list.expR >= 0 ? "up" : "down"}">${R(x.list.expR)}</span> <span class="muted">${x.list.n}</span> <span class="pill ${SHORTV[x.list.verdict.key][1]}" title="${esc(x.list.verdict.text)}">${SHORTV[x.list.verdict.key][0]}</span>` : "—"}</td><td>${x.mine ? `<span class="chg ${x.mine.expR >= 0 ? "up" : "down"}">${R(x.mine.expR)}</span> <span class="muted">${x.mine.n}</span>` : '<span class="muted">none</span>'}</td><td>${x.volUp == null ? "—" : x.volUp ? '<span class="chg up" title="20-day average volume above its level 20 sessions ago">Rising</span>' : '<span class="chg down" title="20-day average volume below its level 20 sessions ago">Falling</span>'}</td><td>${x.rs ? `<span class="chg ${x.rs.rank >= 70 ? "up" : x.rs.rank <= 30 ? "down" : ""}" title="12-month return skipping the last month: ${esc(pct(x.rs.m))}">${x.rs.rank}</span>` : "—"}</td><td>${accCell(x.acc)}</td><td>${insCell(x.ins)}</td><td>${repCell(x.rep)}${x.wash && x.wash.risk ? ` <span class="pill fail" title="Sold at a loss on ${esc(x.wash.lastSale)} (${esc(money(x.wash.loss))}). Buying again before ${esc(x.wash.clearAfter)} defers that loss for taxes.">Wash sale until ${esc(x.wash.clearAfter.slice(5))}</span>` : ""}${x.spread != null && x.spread * 100 > cfg.maxSpread ? ` <span class="pill fail" title="Bid-ask spread now">Spread ${(x.spread * 100).toFixed(1)}%</span>` : ""}</td><td>${anCell(x.an, x.entry)}</td><td><button class="btn small" type="button" data-plan="${hits.indexOf(x)}">Save plan</button></td></tr>`).join("") : '<tr><td colspan="18" class="muted">No setups on the last close${cap ? ` among names at or under $${cap}` : ""}.</td></tr>'}
         </tbody></table></div>
-        <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. Accum.: an accumulation grade from price and volume (A best, E worst; see the Quality tab), context only: on a test of 86 liquid names over three years it did not reliably predict the next month. RS rank: the 12-month return skipping the last month, ranked 1 to 99 across the list (momentum; Jegadeesh and Titman, 1993). Insiders: two or more different insiders buying on the open market within 30 days (grants and option awards excluded; Cohen, Malloy and Pomorski, 2012). A wash-sale pill means you sold this stock at a loss on Robinhood in the last 30 days: buying it back before the date shown defers that loss for US taxes (two funds on the same stock may also count; ask a tax adviser). Every setup shown is saved to the signals log and followed forward on the Evidence tab. Volume trend: the 20-day average volume against its level 20 sessions earlier; on your list, setups taken with rising volume have done better (see Evidence). Analysts: Robinhood's share of Buy ratings and the average price target against the entry; context, not a rule. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
+        <div class="pb muted" style="font-size:12px">${P.SETUPS.map(s => `<b>${esc(s.short)}:</b> ${esc(s.rule)}`).join(" ")} Stops are held between 0.75 and 2.5 ATR from the entry. Names under $${esc(String(cfg.minPrice))} or trading under $${esc(String(cfg.minDvM))} million a day are skipped${thin.length ? " (" + esc(thin.join(", ")) + ")" : ""}. Dilution risk (red) or Small-cap risk: for names at $20 or less, share offerings or shelf filings in 90 days, a shareholder vote that often means a reverse split, an exchange compliance problem, a reverse split in the past year, a float under 10 million shares or a company worth under $50 million (hover for details). Accum.: an accumulation grade from price and volume (A best, E worst; see the Quality tab), context only: on a test of 86 liquid names over three years it did not reliably predict the next month. RS rank: the 12-month return skipping the last month, ranked 1 to 99 across the list (momentum; Jegadeesh and Titman, 1993). Insiders: two or more different insiders buying on the open market within 30 days (grants and option awards excluded; Cohen, Malloy and Pomorski, 2012). A wash-sale pill means you sold this stock at a loss on Robinhood in the last 30 days: buying it back before the date shown defers that loss for US taxes (two funds on the same stock may also count; ask a tax adviser). Every setup shown is saved to the signals log and followed forward on the Evidence tab. Volume trend: the 20-day average volume against its level 20 sessions earlier; on your list, setups taken with rising volume have done better (see Evidence). Analysts: Robinhood's share of Buy ratings and the average price target against the entry; context, not a rule. A red earnings pill means a report lands within the ${cfg.hold}-session hold: a gap can jump the stop, so the real loss can be several R. "On the list" is this exact rule's backtest on the list (${cfg.hold}-day time exit, ${cfg.costBps} bp a side); see Evidence. An order not filled next session is cancelled.</div></div>`;
       out.innerHTML = h + '<div id="pbDayBox" style="margin-top:18px"></div>';
       out.querySelectorAll("button[data-plan]").forEach(b => b.onclick = async () => {
         const x = scanHits[+b.dataset.plan]; b.disabled = true;
