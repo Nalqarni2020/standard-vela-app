@@ -492,4 +492,31 @@ near(P.projRvol(1.7e6, 1e7, 600), 1); ok();
   assert.deepEqual(P.splitsFrom(adj, adj), []);
   ok();
 }
+{ // auto levels, confluence with a pasted plan, and trade excursions
+  const T = (hm) => Date.parse('2026-11-23T' + hm + ':00-05:00');
+  const bar = (hm, o, h, l, c, v) => ({ t: T(hm), o, h, l, c, v });
+  const daily = [{ d: '2026-11-20', t: Date.parse('2026-11-20T21:00:00Z'), o: 0.75, h: 1.43, l: 0.86, c: 1.34, v: 9e7 }];
+  const ext = [bar('04:00', 1.4, 1.62, 1.38, 1.6, 1e6), bar('08:00', 1.6, 2.05, 1.58, 1.9, 2e6), bar('09:30', 1.86, 1.96, 1.66, 1.78, 5e6)];
+  const reg = [bar('09:30', 1.86, 1.96, 1.66, 1.78, 4e6), bar('09:35', 1.78, 1.8, 1.7, 1.72, 2e6)];
+  const a = P.autoLevels(daily, ext, reg);
+  assert.equal(a.pdh, 1.43); assert.equal(a.pdl, 0.86); assert.equal(a.pdc, 1.34);
+  assert.equal(a.pmh, 2.05); assert.equal(a.pml, 1.38); assert.equal(a.orh, 1.96); assert.equal(a.orl, 1.66);
+  near(a.vwap, ((1.96 + 1.66 + 1.78) / 3 * 4e6 + (1.8 + 1.7 + 1.72) / 3 * 2e6) / 6e6, 1e-9);
+  const lv = P.parseLevels('$MEDS $1.55\nBREAK & HOLD ABOVE: $1.60\nPULLBACK ENTRY 1: $1.43\nPULLBACK ENTRY 2: $1.34\nTARGET 1: $1.93')[0];
+  const cf = P.levelConfluence(lv, a);
+  assert.deepEqual(cf.map(z => z.mine + '=' + z.auto), ['pullback 1=pdh', 'pullback 2=pdc']);
+  assert.deepEqual(P.autoLevels([], [], []), { pdh: null, pdl: null, pdc: null, pdDate: null, pmh: null, pml: null, orh: null, orl: null, vwap: null, last: null });
+  // a same-day trade: bought 1.70 at 09:40, sold 1.75 at 10:00; the low after entry was 1.62 and the high 1.90
+  const r5 = [bar('09:35', 1.7, 1.72, 1.6, 1.7, 1), bar('09:40', 1.7, 1.9, 1.62, 1.85, 1), bar('09:55', 1.85, 1.86, 1.74, 1.75, 1), bar('10:05', 1.75, 2.5, 1.0, 1.2, 1)];
+  const ex = P.excursion({ entryPx: 1.7, exitPx: 1.75, entryT: T('09:41'), exitT: T('10:00') }, r5, 0.17);
+  near(ex.mae, 1.62 / 1.7 - 1); near(ex.mfe, 1.9 / 1.7 - 1); near(ex.maeATR, (1.62 / 1.7 - 1) / 0.1); assert.equal(ex.sameDay, true);
+  near(ex.kept, (1.75 / 1.7 - 1) / (1.9 / 1.7 - 1));
+  // a multi-day trade on daily bars
+  const dd = [{ d: '2026-11-02', l: 9.5, h: 10.2 }, { d: '2026-11-03', l: 8.8, h: 10.5 }, { d: '2026-11-04', l: 9.9, h: 12.0 }, { d: '2026-11-05', l: 7, h: 13 }];
+  const ex2 = P.excursion({ entryPx: 10, exitPx: 11, entryT: Date.parse('2026-11-02T15:00:00Z'), exitT: Date.parse('2026-11-04T20:00:00Z') }, dd);
+  near(ex2.mae, -0.12); near(ex2.mfe, 0.2); assert.equal(ex2.maeATR, null);
+  const rep = P.excursionReport([{ ex }, { ex: ex2 }, { ex: { mae: -0.1, mfe: 0.06, ret: -0.08, maeATR: -2, mfeATR: 1.2, kept: -1, gaveBack: 0.14 } }, { ex: null }]);
+  assert.equal(rep.n, 3); assert.equal(rep.wins, 2); assert.equal(rep.losses, 1); assert.equal(rep.upFirst, 1);
+  ok();
+}
 console.log('playbook tests passed:', n);

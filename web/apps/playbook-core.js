@@ -868,6 +868,46 @@
     for (let i = 1; i < pts.length; i++) { const j = pts[i].r / pts[i - 1].r; if (j > 1.5 || j < 1 / 1.5) out.push({ d: pts[i].d, ratio: +j.toFixed(2) }); }
     return out;
   }
-  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries, parseLevels, levelState, dayTradeGuard, smallCapRisk, splitsFrom };
+  /* ---------- Auto levels: the levels most day traders mark every morning ----------
+     daily: completed daily bars before today; ext5: today's 5-minute bars with extended hours (pre-market from 4:00);
+     reg5: today's regular-session 5-minute bars. Each value is null when its bars are missing. */
+  function autoLevels(daily, ext5, reg5) {
+    const E = En(), y = (daily || []).length ? daily[daily.length - 1] : null;
+    const pre = (ext5 || []).filter(b => E.ny(b.t).min < 570), reg = (reg5 || []).filter(b => { const m = E.ny(b.t).min; return m >= 570 && m < 960; });
+    let pv = 0, vv = 0; reg.forEach(b => { const tp = (b.h + b.l + b.c) / 3; pv += tp * b.v; vv += b.v; });
+    const first = reg.length ? reg[0] : null;
+    return { pdh: y ? y.h : null, pdl: y ? y.l : null, pdc: y ? y.c : null, pdDate: y ? y.d : null,
+      pmh: pre.length ? Math.max(...pre.map(b => b.h)) : null, pml: pre.length ? Math.min(...pre.map(b => b.l)) : null,
+      orh: first ? first.h : null, orl: first ? first.l : null, vwap: vv > 0 ? pv / vv : null, last: reg.length ? reg[reg.length - 1].c : null };
+  }
+  const AUTO_NAMES = { pdh: "yesterday's high", pdl: "yesterday's low", pdc: "yesterday's close", pmh: "pre-market high", pml: "pre-market low", orh: "first 5-minute high", orl: "first 5-minute low", vwap: "VWAP" };
+  /* Which of the pasted levels sit within tol (1%) of an auto level: those are the levels two methods agree on. */
+  function levelConfluence(lv, auto, tol) {
+    tol = tol == null ? 0.01 : tol; const out = [], mine = [["break", lv.brk], ...(lv.pb || []).map((p, k) => ["pullback " + (k + 1), p]), ...(lv.tgt || []).map((p, k) => ["target " + (k + 1), p])].filter(z => z[1] != null);
+    for (const [name, p] of mine) for (const k of Object.keys(AUTO_NAMES)) { const a = auto[k]; if (a != null && Math.abs(p / a - 1) <= tol) out.push({ mine: name, level: p, auto: k, autoName: AUTO_NAMES[k], at: a }); }
+    return out;
+  }
+  /* ---------- Trade excursions: how far each closed trade went against you and for you ----------
+     trip: {entryPx, exitPx, entryT, exitT}; bars: the stock's bars covering the trade (daily for multi-day trades, 5-minute
+     for same-day ones); atr: ATR14 at entry (optional). mae = worst low / entry - 1, mfe = best high / entry - 1. */
+  function excursion(trip, bars, atr) {
+    const E = En(), d0 = E.ny(trip.entryT).date, d1 = E.ny(trip.exitT).date, sameDay = d0 === d1;
+    const inT = (bars || []).filter(b => sameDay ? (b.t + 300000 > trip.entryT && b.t <= trip.exitT) : (b.d >= d0 && b.d <= d1));
+    if (!inT.length) return null;
+    const lo = Math.min(...inT.map(b => b.l), trip.exitPx, trip.entryPx), hi = Math.max(...inT.map(b => b.h), trip.exitPx, trip.entryPx);
+    const mae = lo / trip.entryPx - 1, mfe = hi / trip.entryPx - 1, ret = trip.exitPx / trip.entryPx - 1, a = atr && atr > 0 ? atr / trip.entryPx : null;
+    return { mae, mfe, ret, sameDay, maeATR: a ? mae / a : null, mfeATR: a ? mfe / a : null, kept: mfe > 0 ? Math.max(-1, ret / mfe) : null, gaveBack: mfe - ret };
+  }
+  /* Findings over many trades (each with an `ex` from excursion). */
+  function excursionReport(trips) {
+    const t = trips.filter(z => z.ex), w = t.filter(z => z.ex.ret > 0), l = t.filter(z => z.ex.ret <= 0);
+    const q = (arr, p) => { if (!arr.length) return null; const s = arr.slice().sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1) + 0.5))]; };
+    const winMae = q(w.map(z => z.ex.mae), 0.1), winMaeATR = q(w.filter(z => z.ex.maeATR != null).map(z => z.ex.maeATR), 0.1);
+    const upFirst = l.filter(z => z.ex.mfeATR != null ? z.ex.mfeATR >= 1 : z.ex.mfe >= 0.05);
+    const kept = w.map(z => z.ex.kept).filter(v => v != null);
+    return { n: t.length, wins: w.length, losses: l.length, winMae, winMaeATR, lossMaeMedian: q(l.map(z => z.ex.mae), 0.5),
+      upFirst: upFirst.length, keptMedian: q(kept, 0.5), gaveBackMedian: q(w.map(z => z.ex.gaveBack), 0.5) };
+  }
+  const PB = { normCdf, normInv, moments, deflatedSharpe, variance, gate, sizePlan, prep, SETUPS, setupsAt, simulate, rSummary, evidence, volShare, projRvol, orbPlan, halfHour, edgeReport, hpTrend, hpSeries, HP, bottomWatch, liquid, sessionsUntil, nextReport, earningsInside, matchPlans, manage, checkMove, liquidityGrade, MOVES, moverStudy, earnEvents, resolveSignal, insiderClusters, washSale, momentum12_1, rsRanks, insiderStudy, indicatorsAt, accumulation, accStudy, emaPullbackFn, rsRankSeries, parseLevels, levelState, dayTradeGuard, smallCapRisk, splitsFrom, autoLevels, levelConfluence, excursion, excursionReport, AUTO_NAMES };
   if (typeof module !== "undefined" && module.exports) module.exports = PB; else root.Playbook = PB;
 })(typeof self !== "undefined" ? self : globalThis);
